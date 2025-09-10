@@ -1,0 +1,51 @@
+# Mapping of placeholder handles in hybrid_rag_pipeline.py to markdown blocks
+INTRO: |
+  """
+  Hybrid RAG Pipeline: S3 + Elasticsearch with NER
+
+  This script demonstrates a hybrid RAG pipeline using the Unstructured Workflow Endpoint.
+  """
+CONFIG: |
+  """
+  Configuration and environment variables used by the pipeline.
+  """
+S3_SOURCE_CONNECTOR: |
+  """
+  Create an S3 source connector for PDF documents.
+  """
+ES_SOURCE_CONNECTOR: |
+  """
+  Create an Elasticsearch source connector for consolidated sales data.
+  """
+ES_DESTINATION_CONNECTOR: |
+  """
+  Create an Elasticsearch destination connector for the customer-support index.
+  """
+WORKFLOW_NODES: |
+  """
+  Shared workflow nodes: VLM partition, chunking, embedding, and NER enrichment.
+  """
+CREATE_WORKFLOWS: |
+  """
+  Create two workflows (S3 PDFs and Elasticsearch) that both write to the customer-support index.
+  """
+RUN_WORKFLOW: |
+  """
+  Utility to start a workflow run and return the job id.
+  """
+JOB_MONITORING: |
+  """
+  Job polling (optional). We currently show how to enable/disable it.
+  """
+ES_PREPROCESSING: |
+  """
+  Preprocess Elasticsearch: create consolidated index and customer-support index.
+  """
+SUMMARY: |
+  """
+  Print a concise pipeline summary with connector IDs, workflow IDs, and job IDs.
+  """
+MAIN: |
+  """
+  Orchestrate the full pipeline steps from preprocessing to summary.
+  """

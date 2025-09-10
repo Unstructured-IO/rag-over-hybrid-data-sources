@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-# [[MD:INTRO]]
+"""
+Hybrid RAG Pipeline: S3 + Elasticsearch with NER
+
+This script demonstrates a hybrid RAG pipeline using the Unstructured Workflow Endpoint.
+"""
 
 import os
 import sys
@@ -22,7 +26,9 @@ from unstructured_client.models.shared import (
 # Load environment variables
 load_dotenv()
 
-# [[MD:CONFIG]]
+"""
+Configuration and environment variables used by the pipeline.
+"""
 # Configuration
 SKIPPED = "SKIPPED"
 
@@ -126,7 +132,9 @@ def create_s3_source_connector():
         print(f"❌ Error creating S3 source connector: {e}")
         return None
 
-# [[MD:ES_SOURCE_CONNECTOR]]
+"""
+Create an Elasticsearch source connector for consolidated sales data.
+"""
 
 def create_elasticsearch_source_connector():
     """Create an Elasticsearch source connector for sales data."""
@@ -153,7 +161,9 @@ def create_elasticsearch_source_connector():
         print(f"❌ Error creating Elasticsearch source connector: {e}")
         return None
 
-# [[MD:ES_DESTINATION_CONNECTOR]]
+"""
+Create an Elasticsearch destination connector for the customer-support index.
+"""
 
 def create_elasticsearch_destination_connector():
     """Create an Elasticsearch destination connector for processed results."""
@@ -180,7 +190,9 @@ def create_elasticsearch_destination_connector():
         print(f"❌ Error creating Elasticsearch destination connector: {e}")
         return None
 
-# [[MD:WORKFLOW_NODES]]
+"""
+Shared workflow nodes: VLM partition, chunking, embedding, and NER enrichment.
+"""
 
 def create_workflow_nodes():
     """Create shared processing nodes for workflows."""
@@ -229,7 +241,9 @@ def create_workflow_nodes():
     
     return vlm_partition_node, chunk_node, embedder_node, ner_enrichment_node
 
-# [[MD:CREATE_WORKFLOWS]]
+"""
+Create two workflows (S3 PDFs and Elasticsearch) that both write to the customer-support index.
+"""
 
 def create_parallel_workflows(s3_source_id, elasticsearch_source_id, destination_id):
     """Create separate workflows for S3 PDFs and Elasticsearch data that run in parallel."""
@@ -286,7 +300,9 @@ def create_parallel_workflows(s3_source_id, elasticsearch_source_id, destination
         print(f"❌ Error creating parallel workflows: {e}")
         return None, None
 
-# [[MD:RUN_WORKFLOW]]
+"""
+Utility to start a workflow run and return the job id.
+"""
 
 def run_workflow(workflow_id, workflow_name):
     """Run a workflow and return job information."""
@@ -303,7 +319,9 @@ def run_workflow(workflow_id, workflow_name):
         print(f"❌ Error running {workflow_name} workflow: {e}")
         return None
 
-# [[MD:JOB_MONITORING]]
+"""
+Job polling (optional). We currently show how to enable/disable it.
+"""
 
 def poll_job_status(job_id, job_name, wait_time=30):
     """Poll job status until completion."""
@@ -334,7 +352,9 @@ def poll_job_status(job_id, job_name, wait_time=30):
             print(f"❌ Error polling {job_name} job status: {e}")
             time.sleep(wait_time)
 
-# [[MD:ES_PREPROCESSING]]
+"""
+Preprocess Elasticsearch: create consolidated index and customer-support index.
+"""
 
 def run_elasticsearch_preprocessing():
     """Run Elasticsearch preprocessing to create required indices."""
@@ -350,7 +370,9 @@ def run_elasticsearch_preprocessing():
         print(f"❌ Error running Elasticsearch preprocessing: {e}")
         return False
 
-# [[MD:SUMMARY]]
+"""
+Print a concise pipeline summary with connector IDs, workflow IDs, and job IDs.
+"""
 
 def print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id, s3_job, es_job):
     """Print comprehensive pipeline summary."""
@@ -393,7 +415,9 @@ def print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id,
     else:
         print("💡 Check the Unstructured dashboard for detailed job status.")
 
-# [[MD:MAIN]]
+"""
+Orchestrate the full pipeline steps from preprocessing to summary.
+"""
 
 def main():
     """Main pipeline execution"""
