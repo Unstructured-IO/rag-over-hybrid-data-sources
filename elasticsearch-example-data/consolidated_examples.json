@@ -1,0 +1,35 @@
+[
+  {
+    "id": "consolidated-001",
+    "timestamp": "2023-11-15T14:30:00",
+    "document_type": "sales_record",
+    "product_line": "SoundSport",
+    "region": "Northeast",
+    "record_date": "2023-11-15",
+    "quarter": "Q4",
+    "year": 2023,
+    "consolidated_text": "SALES RECORD - November 15, 2023\n\nCustomer Information:\n- Name: Jennifer Martinez\n- Location: New York, NY\n- Segment: Consumer\n- Lead Source: Website\n\nProduct Details:\n- Product Line: SoundSport\n- Model: SoundSport Free\n- Category: Sports Earbuds\n- Price: $149\n- Key Features: sweat-resistant, secure fit, wireless\n\nSales Information:\n- Sales Representative: Michael Chen\n- Retailer: Best Buy\n- Region: Northeast\n- Channel: Phone\n- Deal Stage: Qualified\n- Interaction Type: Purchase Inquiry\n\nConversation Summary:\nCustomer Jennifer Martinez from New York, NY contacted Michael Chen to inquire about purchasing the SoundSport Free. The customer was particularly interested in the sweat-resistant, secure fit features. Michael Chen provided detailed product specifications and quoted $149. Customer mentioned they had seen similar products at Best Buy but was impressed with the Bose quality and features.\n\nTemporal Context:\n- Date: November 15, 2023\n- Quarter: Q4 2023\n- Day of Week: Wednesday\n\nRevenue Information:\n- Unit Price: $149\n- Potential Deal Value: $447\n- Priority: High"
+  },
+  {
+    "id": "consolidated-002",
+    "timestamp": "2024-03-22T09:15:00",
+    "document_type": "sales_record",
+    "product_line": "QuietComfort",
+    "region": "West Coast", 
+    "record_date": "2024-03-22",
+    "quarter": "Q1",
+    "year": 2024,
+    "consolidated_text": "SALES RECORD - March 22, 2024\n\nCustomer Information:\n- Name: Robert Taylor\n- Location: Los Angeles, CA\n- Segment: Business\n- Lead Source: Referral\n\nProduct Details:\n- Product Line: QuietComfort\n- Model: QuietComfort Ultra\n- Category: Noise Cancelling\n- Price: $379\n- Key Features: world-class noise cancellation, premium comfort, long battery life\n\nSales Information:\n- Sales Representative: Sarah Johnson\n- Retailer: Amazon\n- Region: West Coast\n- Channel: Direct\n- Deal Stage: Proposal\n- Interaction Type: Product Comparison\n\nConversation Summary:\nSarah Johnson conducted a comprehensive product comparison session with Robert Taylor. The customer was deciding between the QuietComfort Ultra and competitor products. Key selling points discussed included world-class noise cancellation, premium comfort, long battery life which differentiate Bose from competitors. The $379 price point was justified through superior audio quality and build reliability. Customer appreciated the detailed comparison and is considering the purchase.\n\nTemporal Context:\n- Date: March 22, 2024\n- Quarter: Q1 2024\n- Day of Week: Friday\n\nRevenue Information:\n- Unit Price: $379\n- Potential Deal Value: $1137\n- Priority: Medium"
+  },
+  {
+    "id": "consolidated-003",
+    "timestamp": "2022-08-10T16:45:00",
+    "document_type": "sales_record", 
+    "product_line": "OpenAudio",
+    "region": "Midwest",
+    "record_date": "2022-08-10",
+    "quarter": "Q3",
+    "year": 2022,
+    "consolidated_text": "SALES RECORD - August 10, 2022\n\nCustomer Information:\n- Name: Emily Wilson\n- Location: Chicago, IL\n- Segment: Consumer\n- Lead Source: Advertisement\n\nProduct Details:\n- Product Line: OpenAudio\n- Model: OpenAudio Pro\n- Category: Open-Ear Audio\n- Price: $229\n- Key Features: open-ear design, situational awareness, comfortable fit\n\nSales Information:\n- Sales Representative: David Rodriguez\n- Retailer: Costco\n- Region: Midwest\n- Channel: Retail Partner\n- Deal Stage: Closed Won\n- Interaction Type: Order Processing\n\nConversation Summary:\nOrder successfully processed for Emily Wilson: 2 units of OpenAudio Pro at $229 each. David Rodriguez confirmed shipping details to Chicago, IL and explained warranty coverage. Customer opted for expedited shipping and was provided with tracking information. Partnership with Costco ensured competitive pricing and reliable delivery.\n\nTemporal Context:\n- Date: August 10, 2022\n- Quarter: Q3 2022\n- Day of Week: Wednesday\n\nRevenue Information:\n- Unit Price: $229\n- Potential Deal Value: $458\n- Priority: Low"
+  }
+] 

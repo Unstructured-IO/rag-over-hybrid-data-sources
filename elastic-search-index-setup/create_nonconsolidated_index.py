@@ -323,9 +323,9 @@ class ElasticsearchManager:
                 return True
             else:
                 # Create new index only if it doesn't exist
-            self.es.indices.create(index=self.index_name, body=mapping)
+                self.es.indices.create(index=self.index_name, body=mapping)
                 print(f"✅ Created new index: {self.index_name}")
-            return True
+                return True
             
         except Exception as e:
             print(f"❌ Error creating index: {e}")
@@ -367,7 +367,7 @@ class ElasticsearchManager:
                         print(f"   - Document ID: {error_info.get('_id', 'unknown')}")
                         print(f"     Error: {error_info.get('error', {}).get('reason', 'unknown error')}")
                     else:
-                    print(f"   - {item}")
+                        print(f"   - {item}")
             
             return success_count > 0
             
