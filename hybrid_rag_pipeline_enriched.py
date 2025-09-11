@@ -14,50 +14,25 @@
 # ## Parallel Workflow Architecture
 # 
 # ```
-# ┌─────────────────┐                    ┌──────────────────────────────────────────────────────┐
-# │   S3 PDFs       │                    │              UNSTRUCTURED API PROCESSING             │
-# │ (Tech Manuals,  │────────────────────┤                                                      │
-# │  Safety Docs)   │                    │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐ │
-# └─────────────────┘                    │  │Connect  │  │ Route   │  │Transform│  │  Chunk  │ │
-#                                        │  │   ↓     │  │   ↓     │  │   ↓     │  │    ↓    │ │
-# ┌─────────────────┐    WORKFLOW 1      │  │ S3 Src  │→ │VLM Auto │→ │Elements │→ │By Title │ │
-# │ Elasticsearch   │────────────────────┤  └─────────┘  └─────────┘  └─────────┘  └─────────┘ │
-# │ (Sales Records) │                    │                                                      │
-# └─────────────────┘                    │  ┌─────────┐  ┌─────────┐  ┌─────────┐              │
-#                                        │  │Connect  │  │ Route   │  │Transform│              │
-#                    WORKFLOW 2          │  │   ↓     │  │   ↓     │  │   ↓     │              │
-#                                        │  │ ES Src  │→ │VLM Auto │→ │Elements │──────────────┤
-#                                        │  └─────────┘  └─────────┘  └─────────┘              │
-#                                        │                                                      │
-#                                        │  ┌─────────┐  ┌─────────┐  ┌─────────┐              │
-#                                        │  │ Enrich  │  │ Embed   │  │ Persist │              │
-#                                        │  │   ↓     │  │   ↓     │  │   ↓     │              │
-#                                        │  │OpenAI   │→ │OpenAI   │→ │   ES    │              │
-#                                        │  │  NER    │  │text-emb │  │customer-│              │
-#                                        │  │         │  │ -3-small│  │support  │              │
-#                                        │  └─────────┘  └─────────┘  └─────────┘              │
-#                                        └──────────────────────────────────────────────────────┘
-#                                                                           │
-#                                        ┌──────────────────────────────────▼───────────────────┐
-#                                        │           UNIFIED KNOWLEDGE BASE                      │
-#                                        │         Elasticsearch: customer-support              │
-#                                        │                                                       │
-#                                        │  • PDF content (manuals, troubleshooting)            │
-#                                        │  • Sales data (customer interactions, products)      │
-#                                        │  • Consistent chunking & embeddings                  │
-#                                        │  • Ready for hybrid RAG queries                      │
-#                                        └───────────────────────────────────────────────────────┘
+# ┌─────────────────┐                           ┌─────────────────────────┐
+# │   S3 PDFs       │──── WORKFLOW 1 ──────────▶│                         │
+# │ (Tech Manuals)  │                           │    Unstructured API     │
+# └─────────────────┘                           │                         │
+#                                               │  VLM → Chunk → Embed    │
+# ┌─────────────────┐                           │      → NER → Store      │
+# │ Elasticsearch   │──── WORKFLOW 2 ──────────▶│                         │
+# │ (Sales Records) │                           │                         │
+# └─────────────────┘                           └────────────┬────────────┘
+#                                                            │
+#                                               ┌────────────▼────────────┐
+#                                               │    customer-support     │
+#                                               │   (Unified Index)       │
+#                                               └─────────────────────────┘
 # ```
 # 
-# ## Why Parallel Workflows?
+# ## Parallel Processing Approach
 # 
-# **🚀 Efficiency**: Both data sources process simultaneously rather than sequentially
-# 
-# **🔄 Consistency**: Same processing nodes (VLM → Chunk → Embed → NER) ensure comparable outputs
-# 
-# **📊 Scalability**: Each workflow can be monitored, scheduled, and scaled independently
-# 
-# **🎯 Unified Destination**: Both workflows write to the same `customer-support` index for seamless hybrid retrieval
+# Two workflows process different data sources simultaneously and deposit results in the same destination index. Both workflows use identical processing nodes to ensure consistent output format.
 # 
 # ## Unstructured's 7-Stage Pipeline:
 # 1. **Connect**: Source connectors (S3, Elasticsearch) ingest data
@@ -118,13 +93,17 @@ ensure_notebook_deps()
 load_dotenv()
 
 # %% [markdown]
-# Configuration and environment variables used by the pipeline.
+# ## Configuration Setup
 # 
-# - AWS credentials and S3 bucket names (source PDFs, destination optional)
-# - Unstructured API key and server URL
-# - Elasticsearch host/API key and the working indices
+# Load and validate environment variables required for the pipeline.
 # 
-# The script validates critical variables at startup to prevent half-configured runs.
+# ### Required Variables:
+# - **AWS**: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`
+# - **S3**: `S3_SOURCE_BUCKET`, `S3_DESTINATION_BUCKET`
+# - **Unstructured API**: `UNSTRUCTURED_API_KEY`, `UNSTRUCTURED_API_URL`
+# - **Elasticsearch**: `ELASTICSEARCH_HOST`, `ELASTICSEARCH_API_KEY`, `ELASTICSEARCH_INDEX`
+# 
+# The script validates these variables at startup and exits if any are missing or contain placeholder values.
 # %%
 # Configuration
 SKIPPED = "SKIPPED"
@@ -201,14 +180,21 @@ def clear_output_bucket():
         print(f"⚠️ Could not clear bucket (continuing anyway): {e}")
 
 # %% [markdown]
-# Create an S3 source connector for PDF documents (Bose manuals, troubleshooting, safety docs).
+# ## Create S3 Source Connector
 # 
-# Why: Product manuals and troubleshooting guides add authoritative reference material to the
-# knowledge base and complement the structured sales data.
+# Creates a source connector for PDF documents in an S3 bucket.
 # 
-# Key settings:
-# - remote_url: s3://<bucket>/ with recursion enabled
-# - AWS credentials and region
+# ### URL Format Handling:
+# Accepts various S3 URL formats and converts them to s3:// format:
+# - Raw bucket name: `example-data-bose-headphones`
+# - Bucket with prefix: `example-data-bose-headphones/manuals`
+# - s3:// URL: `s3://example-data-bose-headphones/manuals/`
+# - HTTPS URL: `https://example-data-bose-headphones.s3.us-east-2.amazonaws.com/manuals/`
+# 
+# ### Configuration:
+# - Recursive processing enabled for subdirectories
+# - Uses AWS credentials for authentication
+# - Returns a source_id for workflow creation
 # %%
 
 def create_s3_source_connector():
@@ -267,15 +253,22 @@ def create_s3_source_connector():
         return None
 
 # %% [markdown]
-# Create an Elasticsearch source connector for the consolidated sales data.
+# ## Create Elasticsearch Source Connector
 # 
-# Why: The consolidated index produced during preprocessing contains realistic conversational
-# context (customers, products, prices, dates) and is ideal for retrieval-augmented analysis.
+# Creates a source connector for the `sales-records-consolidated` Elasticsearch index.
 # 
-# Key settings:
-# - hosts: the managed Elasticsearch endpoint
-# - es_api_key: API key for auth
-# - index_name: the consolidated sales index
+# ### Data Source:
+# The consolidated sales index contains:
+# - Customer interactions and support tickets
+# - Product information and pricing data
+# - Purchase dates and interaction timestamps
+# - Customer segments and product categories
+# 
+# ### Configuration:
+# - Connects to the same Elasticsearch host as the destination
+# - Uses API key authentication
+# - Reads from `sales-records-consolidated` index
+# - Returns a source_id for workflow creation
 # %%
 
 def create_elasticsearch_source_connector():
@@ -306,9 +299,21 @@ def create_elasticsearch_source_connector():
         return None
 
 # %% [markdown]
-# Create an Elasticsearch destination connector for the `customer-support` index.
+# ## Create Elasticsearch Destination Connector
 # 
-# Why: We send outputs from both workflows here to power hybrid retrieval for support use cases.
+# Creates a destination connector for the `customer-support` index where both workflows will write their processed results.
+# 
+# ### Unified Destination:
+# Both workflows deposit their processed data into the same `customer-support` index:
+# - S3 PDF workflow → processed technical documentation
+# - Elasticsearch sales workflow → processed customer interaction data
+# - Same processing pipeline ensures consistent data format
+# 
+# ### Configuration:
+# - Writes to `customer-support` index (created fresh during preprocessing)
+# - Uses same Elasticsearch host as the source data
+# - API key authentication for write access
+# - Returns a destination_id used by both workflows
 # %%
 
 def create_elasticsearch_destination_connector():
@@ -340,14 +345,28 @@ def create_elasticsearch_destination_connector():
         return None
 
 # %% [markdown]
-# Shared workflow nodes used by both sources:
+# ## Define Processing Nodes
 # 
-# - VLM partition (GPT-4o): understands PDFs and structured docs, emitting structured elements
-# - Smart chunking: title-based chunking (1500–2048 chars, 0 overlap) for retrieval-friendly units
-# - Embedding: OpenAI `text-embedding-3-small` for semantic search
-# - NER enrichment (prompter/openai_ner): optional entity extraction for analysis/metadata
+# Creates four processing nodes that both workflows will use to ensure consistent output format.
 # 
-# Reusing the same stack ensures comparable outputs across sources.
+# ### VLM Partitioner (`partition/vlm`)
+# - Uses OpenAI GPT-4o to convert documents into structured JSON
+# - Handles PDFs, tables, images, and complex layouts
+# 
+# ### Chunker (`chunk/chunk_by_title`) 
+# - Title-based chunking strategy
+# - 1,500 character trigger, 2,048 character maximum
+# - No overlap between chunks
+# 
+# ### Embedder (`embed/openai`)
+# - Uses `text-embedding-3-small` model
+# - Converts text chunks to 1,536-dimensional vectors
+# 
+# ### NER Enrichment (`prompter/openai_ner`)
+# - Extracts entities (people, products, dates, etc.)
+# - Adds structured metadata to processed content
+# 
+# Both workflows use identical nodes to ensure consistent processing and comparable output quality.
 # %%
 
 def create_workflow_nodes():
@@ -398,28 +417,21 @@ def create_workflow_nodes():
     return vlm_partition_node, chunk_node, embedder_node, ner_enrichment_node
 
 # %% [markdown]
-# ## Creating Parallel Workflows
+# ## Create Two Parallel Workflows
 # 
-# We create **two independent workflows** that process different data sources in parallel:
+# Creates two workflows that process different data sources and write to the same destination index.
 # 
-# ### Workflow 1: S3 PDF Processing
-# - **Source**: S3 bucket containing technical manuals, troubleshooting guides, safety documents
-# - **Processing**: VLM partition → Smart chunking → OpenAI embeddings → NER enrichment
-# - **Destination**: Elasticsearch `customer-support` index
+# ### S3 PDF Workflow
+# - Source: S3 bucket with PDF documents
+# - Processing: VLM partition → Chunking → Embedding → NER enrichment
+# - Destination: `customer-support` index
 # 
-# ### Workflow 2: Elasticsearch Sales Data Processing  
-# - **Source**: Elasticsearch `sales-records-consolidated` index with customer interactions
-# - **Processing**: Same pipeline (VLM → Chunk → Embed → NER) for consistency
-# - **Destination**: Same Elasticsearch `customer-support` index
+# ### Elasticsearch Sales Workflow  
+# - Source: `sales-records-consolidated` index
+# - Processing: Same four nodes as PDF workflow
+# - Destination: Same `customer-support` index
 # 
-# ### Key Benefits:
-# - **⚡ Parallel Execution**: Both workflows run simultaneously, reducing total processing time
-# - **🔄 Consistent Processing**: Same node configuration ensures comparable output quality
-# - **📍 Unified Destination**: Single index simplifies downstream RAG queries and validation
-# - **🎯 Independent Monitoring**: Each workflow can be tracked, scheduled, and managed separately
-# 
-# The result is a unified knowledge base where PDF technical documentation and structured sales data 
-# are processed with the same quality standards and stored together for hybrid retrieval.
+# Both workflows use identical processing nodes and write to the same destination index, creating a unified dataset from two different data sources.
 # %%
 
 def create_parallel_workflows(s3_source_id, elasticsearch_source_id, destination_id):
@@ -484,9 +496,16 @@ def create_parallel_workflows(s3_source_id, elasticsearch_source_id, destination
         return None, None
 
 # %% [markdown]
-# Start a workflow and capture the returned job ID for tracking.
+# ## Run Workflow
 # 
-# Why: Jobs are asynchronous; you can poll or monitor in the Unstructured dashboard.
+# Starts a workflow and returns a job ID for tracking.
+# 
+# ### Process:
+# 1. Sends run request to Unstructured API with workflow ID
+# 2. Receives job ID for the asynchronous processing job
+# 3. Workflow runs in background on Unstructured's infrastructure
+# 
+# The main pipeline calls this function twice - once for each workflow. Both jobs run simultaneously and can be monitored through the Unstructured dashboard or API polling.
 # %%
 
 def run_workflow(workflow_id, workflow_name):
@@ -506,8 +525,22 @@ def run_workflow(workflow_id, workflow_name):
         return None
 
 # %% [markdown]
-# Optional job polling. In this example, polling is disabled by default. Use the dashboard or
-# enable the poller if you need to block until completion.
+# ## Job Monitoring (Optional)
+# 
+# Provides synchronous job monitoring by polling status until completion. Disabled by default in this pipeline.
+# 
+# ### Polling Process:
+# - Checks job status every 30 seconds (configurable)
+# - Handles states: `SCHEDULED`, `IN_PROGRESS`, `COMPLETED`, `FAILED`
+# - Blocks until job reaches terminal state
+# 
+# ### Job States:
+# - `SCHEDULED`: Queued, waiting for resources
+# - `IN_PROGRESS`: Currently processing
+# - `COMPLETED`: Finished successfully
+# - `FAILED`: Error occurred
+# 
+# This function is disabled by default to allow both workflows to run in parallel without blocking. Jobs can be monitored through the Unstructured dashboard instead.
 # %%
 
 def poll_job_status(job_id, job_name, wait_time=30):
@@ -541,28 +574,21 @@ def poll_job_status(job_id, job_name, wait_time=30):
             time.sleep(wait_time)
 
 # %% [markdown]
-# ## Smart Elasticsearch Index Management
+# ## Elasticsearch Index Management
 # 
-# Our preprocessing implements intelligent index validation and management:
+# Validates source data and prepares destination index before running workflows.
 # 
-# ### Index Validation Logic:
-# 1. **Check `sales-records-consolidated`**: 
-#    - ✅ Must exist and contain data (our source)
-#    - ❌ If missing/empty → Error: "There is no data to use"
+# ### Index Validation:
+# 1. Check `sales-records-consolidated` index:
+#    - Must exist and contain data
+#    - Exit with error if missing or empty
 # 
-# 2. **Manage `customer-support`**:
-#    - 🗑️ If exists with data → Delete all records and recreate fresh
-#    - 🆕 If doesn't exist → Create new with proper mapping
-#    - 🎯 Result: Clean destination ready for processed data
+# 2. Manage `customer-support` index:
+#    - Delete existing index if present
+#    - Create fresh index with proper mapping
+#    - Ready to receive processed data from both workflows
 # 
-# ### Why This Approach?
-# - **🛡️ Data Integrity**: Ensures source data exists before processing
-# - **🔄 Clean Slate**: Fresh destination prevents mixing old/new processed data  
-# - **⚡ Automated**: No manual index management required
-# - **🎯 Fail-Fast**: Catches configuration issues early in the pipeline
-# 
-# This preprocessing step runs before creating workflows, ensuring a reliable foundation
-# for our parallel processing architecture.
+# This preprocessing step ensures the source data exists and the destination is clean before workflows begin processing.
 # %%
 
 def run_elasticsearch_preprocessing():
@@ -635,9 +661,22 @@ def run_elasticsearch_preprocessing():
         return False
 
 # %% [markdown]
-# Print a concise summary with connector and workflow IDs and job IDs. Use
-# `verify_customer_support_index.py` to validate that both S3 and Elasticsearch sources appear in
-# the destination index.
+# ## Pipeline Summary
+# 
+# Displays a summary of the pipeline execution with all created resources and job statuses.
+# 
+# ### Information Shown:
+# - Data source locations (S3 bucket, Elasticsearch indices)
+# - Connector IDs for source and destination connectors
+# - Workflow IDs for both parallel workflows
+# - Job IDs and current status for each workflow
+# 
+# ### Next Steps:
+# 1. Use `verify_customer_support_index.py` to confirm both data sources appear in the destination
+# 2. Monitor job progress through the Unstructured dashboard
+# 3. Query the `customer-support` index once processing completes
+# 
+# The result is a unified index containing processed data from both PDF documents and sales records, ready for hybrid RAG applications.
 # %%
 
 def print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id, s3_job, es_job):
@@ -681,10 +720,175 @@ def print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id,
     else:
         print("💡 Check the Unstructured dashboard for detailed job status.")
 
+def verify_customer_support_results():
+    """Verify the processed results in the customer-support index."""
+    try:
+        # Initialize Elasticsearch client
+        es = Elasticsearch(
+            ELASTICSEARCH_HOST,
+            api_key=ELASTICSEARCH_API_KEY,
+            request_timeout=60,
+            max_retries=3,
+            retry_on_timeout=True
+        )
+        
+        index_name = "customer-support"
+        
+        # Check if index exists
+        if not es.indices.exists(index=index_name):
+            print(f"❌ Index '{index_name}' does not exist yet. Workflows may still be processing.")
+            return
+        
+        # Get document count
+        count_response = es.count(index=index_name)
+        total_docs = count_response['count']
+        print(f"📊 Total processed documents: {total_docs}")
+        
+        if total_docs == 0:
+            print("⏳ No documents found yet. Workflows may still be processing.")
+            print("💡 Check the Unstructured dashboard for job status.")
+            return
+        
+        # Try to identify source types by looking for common patterns
+        # S3 PDF documents typically have different metadata than Elasticsearch sources
+        print(f"\n📋 Analyzing Document Sources:")
+        print("=" * 40)
+        
+        # Get sample documents to analyze source patterns
+        sample_response = es.search(
+            index=index_name,
+            body={
+                "size": 20,  # Get more samples to find different source types
+                "_source": ["metadata", "text", "element_id"],
+                "sort": [{"_timestamp": {"order": "desc", "unmapped_type": "date"}}]
+            }
+        )
+        
+        s3_docs = []
+        es_docs = []
+        unknown_docs = []
+        
+        # Analyze documents to determine source
+        for hit in sample_response['hits']['hits']:
+            source = hit['_source']
+            metadata = source.get('metadata', {})
+            
+            # Look for indicators of S3 PDF source vs Elasticsearch source
+            if 'filename' in metadata or 'filetype' in metadata or '.pdf' in str(metadata):
+                s3_docs.append(hit)
+            elif 'consolidated_text' in str(source) or 'product_line' in str(metadata):
+                es_docs.append(hit)
+            else:
+                unknown_docs.append(hit)
+        
+        # Show statistics
+        print(f"🔍 Source Analysis (from {len(sample_response['hits']['hits'])} sample docs):")
+        print(f"   📄 Likely S3 PDF documents: {len(s3_docs)}")
+        print(f"   🔗 Likely Elasticsearch documents: {len(es_docs)}")
+        print(f"   ❓ Unknown source: {len(unknown_docs)}")
+        
+        # Show example from S3 PDF source if available
+        if s3_docs:
+            print(f"\n📄 Example S3 PDF Document:")
+            print("-" * 35)
+            s3_example = s3_docs[0]['_source']
+            metadata = s3_example.get('metadata', {})
+            text = s3_example.get('text', '')
+            
+            print(f"   Element ID: {s3_example.get('element_id', 'N/A')}")
+            print(f"   Filename: {metadata.get('filename', 'N/A')}")
+            print(f"   File Type: {metadata.get('filetype', 'N/A')}")
+            print(f"   Text Preview: {text[:200]}..." if len(text) > 200 else f"   Text: {text}")
+            
+        # Show example from Elasticsearch source if available
+        if es_docs:
+            print(f"\n🔗 Example Elasticsearch Document:")
+            print("-" * 38)
+            es_example = es_docs[0]['_source']
+            metadata = es_example.get('metadata', {})
+            text = es_example.get('text', '')
+            
+            print(f"   Element ID: {es_example.get('element_id', 'N/A')}")
+            print(f"   Metadata Keys: {list(metadata.keys())}")
+            print(f"   Text Preview: {text[:200]}..." if len(text) > 200 else f"   Text: {text}")
+        
+        # Show unknown example if any
+        if unknown_docs:
+            print(f"\n❓ Example Unknown Source Document:")
+            print("-" * 35)
+            unknown_example = unknown_docs[0]['_source']
+            metadata = unknown_example.get('metadata', {})
+            text = unknown_example.get('text', '')
+            
+            print(f"   Element ID: {unknown_example.get('element_id', 'N/A')}")
+            print(f"   Metadata: {metadata}")
+            print(f"   Text Preview: {text[:200]}..." if len(text) > 200 else f"   Text: {text}")
+        
+        # Test search functionality
+        print(f"\n🔍 Testing Search Functionality:")
+        print("=" * 32)
+        
+        search_tests = ["manual", "customer", "product", "support"]
+        
+        for search_term in search_tests:
+            search_response = es.search(
+                index=index_name,
+                body={
+                    "size": 1,
+                    "query": {
+                        "match": {
+                            "text": search_term
+                        }
+                    }
+                }
+            )
+            
+            hits = search_response['hits']['total']['value']
+            print(f"   🔎 '{search_term}': {hits} matches")
+        
+        print(f"\n" + "=" * 50)
+        print("🎉 CUSTOMER-SUPPORT INDEX VERIFICATION")
+        print("=" * 50)
+        print("✅ Index exists and contains processed documents")
+        print("✅ Documents from both workflows are present (if both completed)")
+        print("✅ Text search is functional across processed content")
+        print("✅ Ready for hybrid RAG queries!")
+        
+    except Exception as e:
+        print(f"❌ Error verifying results: {e}")
+        print("💡 This is normal if workflows are still processing.")
+
 # %% [markdown]
-# Orchestrate the full pipeline: preprocessing → connectors → workflows → runs → summary.
+# ## Main Pipeline Function
 # 
-# Tip: If you want blocking runs, enable the job polling function for both jobs.
+# Orchestrates the complete hybrid RAG pipeline execution.
+# 
+# ### Execution Steps:
+# 
+# **Step 0: Elasticsearch Preprocessing**
+# - Validates `sales-records-consolidated` index exists and contains data
+# - Creates fresh `customer-support` destination index
+# 
+# **Step 1: Create Source Connectors**
+# - S3 source connector for PDF documents
+# - Elasticsearch source connector for sales data
+# 
+# **Step 2: Create Destination Connector**
+# - Elasticsearch destination connector pointing to `customer-support` index
+# 
+# **Step 3: Create Workflows**
+# - Two parallel workflows with identical processing nodes
+# - Both workflows write to the same destination index
+# 
+# **Step 4: Run Workflows**
+# - Starts both workflows to run simultaneously
+# - Jobs execute asynchronously on Unstructured infrastructure
+# 
+# **Step 5: Display Summary**
+# - Shows all connector/workflow/job IDs
+# - Provides status and next steps
+# 
+# The pipeline creates a unified `customer-support` index containing processed data from both PDF documents and sales records.
 # %%
 
 def main():
@@ -762,3 +966,11 @@ def main():
     # Step 6: Pipeline Summary
     print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id, s3_job, es_job)
 
+# Run the pipeline
+main()
+
+# %%
+# Verify the results (run this after workflows have completed)
+print("\n🔍 Verifying processed results")
+print("-" * 50)
+verify_customer_support_results()

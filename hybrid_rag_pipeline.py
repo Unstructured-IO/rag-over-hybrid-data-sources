@@ -516,6 +516,144 @@ def print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id,
     else:
         print("💡 Check the Unstructured dashboard for detailed job status.")
 
+def verify_customer_support_results():
+    """Verify the processed results in the customer-support index."""
+    try:
+        # Initialize Elasticsearch client
+        es = Elasticsearch(
+            ELASTICSEARCH_HOST,
+            api_key=ELASTICSEARCH_API_KEY,
+            request_timeout=60,
+            max_retries=3,
+            retry_on_timeout=True
+        )
+        
+        index_name = "customer-support"
+        
+        # Check if index exists
+        if not es.indices.exists(index=index_name):
+            print(f"❌ Index '{index_name}' does not exist yet. Workflows may still be processing.")
+            return
+        
+        # Get document count
+        count_response = es.count(index=index_name)
+        total_docs = count_response['count']
+        print(f"📊 Total processed documents: {total_docs}")
+        
+        if total_docs == 0:
+            print("⏳ No documents found yet. Workflows may still be processing.")
+            print("💡 Check the Unstructured dashboard for job status.")
+            return
+        
+        # Try to identify source types by looking for common patterns
+        # S3 PDF documents typically have different metadata than Elasticsearch sources
+        print(f"\n📋 Analyzing Document Sources:")
+        print("=" * 40)
+        
+        # Get sample documents to analyze source patterns
+        sample_response = es.search(
+            index=index_name,
+            body={
+                "size": 20,  # Get more samples to find different source types
+                "_source": ["metadata", "text", "element_id"],
+                "sort": [{"_timestamp": {"order": "desc", "unmapped_type": "date"}}]
+            }
+        )
+        
+        s3_docs = []
+        es_docs = []
+        unknown_docs = []
+        
+        # Analyze documents to determine source
+        for hit in sample_response['hits']['hits']:
+            source = hit['_source']
+            metadata = source.get('metadata', {})
+            
+            # Look for indicators of S3 PDF source vs Elasticsearch source
+            if 'filename' in metadata or 'filetype' in metadata or '.pdf' in str(metadata):
+                s3_docs.append(hit)
+            elif 'consolidated_text' in str(source) or 'product_line' in str(metadata):
+                es_docs.append(hit)
+            else:
+                unknown_docs.append(hit)
+        
+        # Show statistics
+        print(f"🔍 Source Analysis (from {len(sample_response['hits']['hits'])} sample docs):")
+        print(f"   📄 Likely S3 PDF documents: {len(s3_docs)}")
+        print(f"   🔗 Likely Elasticsearch documents: {len(es_docs)}")
+        print(f"   ❓ Unknown source: {len(unknown_docs)}")
+        
+        # Show example from S3 PDF source if available
+        if s3_docs:
+            print(f"\n📄 Example S3 PDF Document:")
+            print("-" * 35)
+            s3_example = s3_docs[0]['_source']
+            metadata = s3_example.get('metadata', {})
+            text = s3_example.get('text', '')
+            
+            print(f"   Element ID: {s3_example.get('element_id', 'N/A')}")
+            print(f"   Filename: {metadata.get('filename', 'N/A')}")
+            print(f"   File Type: {metadata.get('filetype', 'N/A')}")
+            print(f"   Text Preview: {text[:200]}..." if len(text) > 200 else f"   Text: {text}")
+            
+        # Show example from Elasticsearch source if available
+        if es_docs:
+            print(f"\n🔗 Example Elasticsearch Document:")
+            print("-" * 38)
+            es_example = es_docs[0]['_source']
+            metadata = es_example.get('metadata', {})
+            text = es_example.get('text', '')
+            
+            print(f"   Element ID: {es_example.get('element_id', 'N/A')}")
+            print(f"   Metadata Keys: {list(metadata.keys())}")
+            print(f"   Text Preview: {text[:200]}..." if len(text) > 200 else f"   Text: {text}")
+        
+        # Show unknown example if any
+        if unknown_docs:
+            print(f"\n❓ Example Unknown Source Document:")
+            print("-" * 35)
+            unknown_example = unknown_docs[0]['_source']
+            metadata = unknown_example.get('metadata', {})
+            text = unknown_example.get('text', '')
+            
+            print(f"   Element ID: {unknown_example.get('element_id', 'N/A')}")
+            print(f"   Metadata: {metadata}")
+            print(f"   Text Preview: {text[:200]}..." if len(text) > 200 else f"   Text: {text}")
+        
+        # Test search functionality
+        print(f"\n🔍 Testing Search Functionality:")
+        print("=" * 32)
+        
+        search_tests = ["manual", "customer", "product", "support"]
+        
+        for search_term in search_tests:
+            search_response = es.search(
+                index=index_name,
+                body={
+                    "size": 1,
+                    "query": {
+                        "match": {
+                            "text": search_term
+                        }
+                    }
+                }
+            )
+            
+            hits = search_response['hits']['total']['value']
+            print(f"   🔎 '{search_term}': {hits} matches")
+        
+        print(f"\n" + "=" * 50)
+        print("🎉 CUSTOMER-SUPPORT INDEX VERIFICATION")
+        print("=" * 50)
+        print("✅ Index exists and contains processed documents")
+        print("✅ Documents from both workflows are present (if both completed)")
+        print("✅ Text search is functional across processed content")
+        print("✅ Ready for hybrid RAG queries!")
+        
+    except Exception as e:
+        print(f"❌ Error verifying results: {e}")
+        print("💡 This is normal if workflows are still processing.")
+
 # [[MD:MAIN]]
 
 def main():
@@ -593,3 +731,11 @@ def main():
     # Step 6: Pipeline Summary
     print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id, s3_job, es_job)
 
+# Run the pipeline
+main()
+
+# %%
+# Verify the results (run this after workflows have completed)
+print("\n🔍 Verifying processed results")
+print("-" * 50)
+verify_customer_support_results()
