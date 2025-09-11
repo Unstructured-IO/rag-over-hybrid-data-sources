@@ -34,7 +34,7 @@
 # 
 # Two workflows process different data sources simultaneously and deposit results in the same destination index. Both workflows use identical processing nodes to ensure consistent output format.
 # 
-# ## Unstructured's 7-Stage Pipeline:
+# ## Unstructured Pipeline:
 # 1. **Connect**: Source connectors (S3, Elasticsearch) ingest data
 # 2. **Route**: Auto partitioning strategy selects optimal processing (VLM for complex docs)
 # 3. **Transform**: Documents converted to Unstructured's canonical JSON schema
