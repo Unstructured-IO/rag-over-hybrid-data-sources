@@ -1,51 +1,125 @@
-# Mapping of placeholder handles in hybrid_rag_pipeline.py to markdown blocks
+# Markdown blocks for enriching hybrid_rag_pipeline.py
+
 INTRO: |
   """
-  Hybrid RAG Pipeline: S3 + Elasticsearch with NER
+  Hybrid RAG Pipeline: Multi-Source Data Processing with Unstructured API
 
-  This script demonstrates a hybrid RAG pipeline using the Unstructured Workflow Endpoint.
+  This notebook demonstrates how to use the Unstructured Workflow Endpoint to process data
+  from multiple sources and send it to a single destination.
+
+  What you'll learn:
+  - Why and how we partition documents (VLM)
+  - How smart chunking improves retrieval
+  - How embeddings enable semantic search and RAG
+  - How two sources (PDFs in S3 and sales data in Elasticsearch) flow to a unified index
+
+  Data Flow (text diagram; side-scroll to view):
+
+  ```
+  [S3 PDFs] ------------------> [VLM Partition (GPT-4o)] --> [Smart Chunker] --> [Vector Embedder] --> [Elasticsearch: customer-support]
+  [Elasticsearch Sales] ------> [VLM Partition (GPT-4o)] --> [Smart Chunker] --> [Vector Embedder] --> [Elasticsearch: customer-support]
+  ```
+
+  Why this workflow?
+  - VLM Partition: converts PDFs and structured docs into consistent, structured elements
+  - Smart Chunker: creates semantically coherent units for retrieval
+  - Embeddings: enables similarity search across both sources
+  - Unified Index: powers hybrid retrieval and consistent downstream RAG
   """
+
 CONFIG: |
   """
   Configuration and environment variables used by the pipeline.
+
+  - AWS credentials and S3 bucket names (source PDFs, destination optional)
+  - Unstructured API key and server URL
+  - Elasticsearch host/API key and the working indices
+
+  The script validates critical variables at startup to prevent half-configured runs.
   """
+
 S3_SOURCE_CONNECTOR: |
   """
-  Create an S3 source connector for PDF documents.
+  Create an S3 source connector for PDF documents (Bose manuals, troubleshooting, safety docs).
+
+  Why: Product manuals and troubleshooting guides add authoritative reference material to the
+  knowledge base and complement the structured sales data.
+
+  Key settings:
+  - remote_url: s3://<bucket>/ with recursion enabled
+  - AWS credentials and region
   """
+
 ES_SOURCE_CONNECTOR: |
   """
-  Create an Elasticsearch source connector for consolidated sales data.
+  Create an Elasticsearch source connector for the consolidated sales data.
+
+  Why: The consolidated index produced during preprocessing contains realistic conversational
+  context (customers, products, prices, dates) and is ideal for retrieval-augmented analysis.
+
+  Key settings:
+  - hosts: the managed Elasticsearch endpoint
+  - es_api_key: API key for auth
+  - index_name: the consolidated sales index
   """
+
 ES_DESTINATION_CONNECTOR: |
   """
-  Create an Elasticsearch destination connector for the customer-support index.
+  Create an Elasticsearch destination connector for the `customer-support` index.
+
+  Why: We send outputs from both workflows here to power hybrid retrieval for support use cases.
   """
+
 WORKFLOW_NODES: |
   """
-  Shared workflow nodes: VLM partition, chunking, embedding, and NER enrichment.
+  Shared workflow nodes used by both sources:
+
+  - VLM partition (GPT-4o): understands PDFs and structured docs, emitting structured elements
+  - Smart chunking: title-based chunking (1500–2048 chars, 0 overlap) for retrieval-friendly units
+  - Embedding: OpenAI `text-embedding-3-small` for semantic search
+  - NER enrichment (prompter/openai_ner): optional entity extraction for analysis/metadata
+
+  Reusing the same stack ensures comparable outputs across sources.
   """
+
 CREATE_WORKFLOWS: |
   """
-  Create two workflows (S3 PDFs and Elasticsearch) that both write to the customer-support index.
+  Create two workflows (S3 PDFs and Elasticsearch) that both write to `customer-support`.
+
+  Why: A single destination simplifies downstream retrieval and validation. Consistency of nodes
+  ensures the embeddings/chunks are comparable regardless of origin.
   """
+
 RUN_WORKFLOW: |
   """
-  Utility to start a workflow run and return the job id.
+  Start a workflow and capture the returned job ID for tracking.
+
+  Why: Jobs are asynchronous; you can poll or monitor in the Unstructured dashboard.
   """
+
 JOB_MONITORING: |
   """
-  Job polling (optional). We currently show how to enable/disable it.
+  Optional job polling. In this example, polling is disabled by default. Use the dashboard or
+  enable the poller if you need to block until completion.
   """
+
 ES_PREPROCESSING: |
   """
-  Preprocess Elasticsearch: create consolidated index and customer-support index.
+  Elasticsearch preprocessing creates both non-consolidated and consolidated indices with synthetic
+  records, then initializes the `customer-support` index. This guarantees that source data and
+  destination indexes exist before the workflows run.
   """
+
 SUMMARY: |
   """
-  Print a concise pipeline summary with connector IDs, workflow IDs, and job IDs.
+  Print a concise summary with connector and workflow IDs and job IDs. Use
+  `verify_customer_support_index.py` to validate that both S3 and Elasticsearch sources appear in
+  the destination index.
   """
+
 MAIN: |
   """
-  Orchestrate the full pipeline steps from preprocessing to summary.
+  Orchestrate the full pipeline: preprocessing → connectors → workflows → runs → summary.
+
+  Tip: If you want blocking runs, enable the job polling function for both jobs.
   """

@@ -1,209 +1,336 @@
-# Notebook Processing Tools
+# Hybrid RAG Pipeline over Multiple Data Sources
 
-This directory contains tools for processing Jupyter notebooks and setting up data sources for hybrid RAG pipelines.
+A comprehensive hybrid Retrieval-Augmented Generation (RAG) pipeline that processes multiple data sources using the Unstructured API to create a unified knowledge base for customer support applications.
 
-## remove_images.py
+## Overview
 
-A Python script that uses regular expressions to remove embedded base64-encoded images from Python files that were converted from Jupyter notebooks using `jupytext`.
+This project demonstrates how to build a hybrid RAG system that combines:
 
-### Features
+1. **Technical Documentation** (PDFs from S3) - Product manuals, troubleshooting guides, MSDS documents
+2. **Sales Data** (Elasticsearch) - Customer interactions, product information, sales records
+3. **Unified Processing** - NER enrichment, chunking, embedding, and vector storage
 
-- Removes base64 data URL images (e.g., `![Screenshot 1](data:image/png;base64,...)`)
-- Cleans up extra empty lines left behind after image removal
-- Can either overwrite the original file or create a new cleaned file
-- Provides detailed feedback on the number of images found and removed
+The pipeline processes both structured and unstructured data sources in parallel, enriches them with Named Entity Recognition (NER), and deposits the results into a unified Elasticsearch index for RAG applications.
 
-### Usage
+## Architecture
 
-```bash
-# Remove images from a file (overwrites original)
-python remove_images.py <input_file.py>
-
-# Remove images and save to a new file
-python remove_images.py <input_file.py> <output_file.py>
+```
+┌─────────────────┐    ┌──────────────────────┐
+│   S3 PDFs       │    │  Elasticsearch       │
+│  (Technical     │    │  (Sales Records)     │
+│   Manuals)      │    │                      │
+└─────────┬───────┘    └──────────┬───────────┘
+          │                       │
+          └───────┬───────────────┘
+                  │
+          ┌───────▼───────┐
+          │  Unstructured │
+          │   Workflows   │
+          │               │
+          │ • VLM Parser  │
+          │ • Chunking    │
+          │ • Embedding   │
+          │ • NER Extract │
+          └───────┬───────┘
+                  │
+          ┌───────▼───────┐
+          │ Elasticsearch │
+          │customer-support│
+          │     Index      │
+          └───────────────┘
 ```
 
-### Examples
+## Features
 
-```bash
-# Clean the converted notebook file in-place
-python remove_images.py ../donor-notebooks/S3_to_Qdrant_Workflow_using_Unstructured_API.py
+### 🔧 **Smart Elasticsearch Preprocessing**
+- **Index Validation**: Automatically checks for required `sales-records-consolidated` index
+- **Data Verification**: Ensures source data exists before processing
+- **Fresh Destination**: Automatically recreates `customer-support` index for clean runs
+- **Error Handling**: Fails fast with clear error messages if prerequisites aren't met
 
-# Create a cleaned copy
-python remove_images.py notebook.py cleaned_notebook.py
-```
+### 🚀 **Parallel Workflow Processing**
+- **S3 Source Connector**: Processes PDFs with VLM (Vision Language Model) parsing
+- **Elasticsearch Source Connector**: Ingests sales records with rich NER data
+- **Unified Destination**: Both workflows deposit into the same `customer-support` index
 
-### Requirements
+### 🎯 **Advanced Processing Pipeline**
+- **VLM Partitioner**: Uses GPT-4o for intelligent document parsing
+- **Smart Chunker**: Context-aware chunking with title-based segmentation
+- **Vector Embedder**: OpenAI text-embedding-3-small for semantic search
+- **NER Enrichment**: Extracts named entities (people, places, organizations, etc.)
 
-- Python 3.6+
-- No external dependencies (uses only standard library modules: `re`, `sys`, `os`, `pathlib`)
+### 📊 **Best Practices Implementation**
+- **Context Managers**: Proper resource management with `UnstructuredClient`
+- **Modern API Usage**: Uses `CreateWorkflowRequest` and `CreateWorkflow` objects
+- **Error Handling**: Comprehensive exception handling with clear feedback
+- **Logging**: Detailed progress tracking with emoji indicators
 
-### How it works
+## Quick Start
 
-The script uses a regular expression pattern to identify and remove markdown-style image references with base64 data URLs:
+### Prerequisites
 
-```python
-image_pattern = r'!\[.*?\]\(data:image/[^;]+;base64,[A-Za-z0-9+/=]+\)'
-```
-
-This pattern matches:
-- `![...]` - Markdown image syntax
-- `(data:image/...)` - Data URL with image MIME type
-- `;base64,` - Base64 encoding indicator
-- `[A-Za-z0-9+/=]+` - Base64 encoded data
-
-## Workflow Example
-
-1. Convert Jupyter notebook to Python file using `jupytext`:
+1. **Environment Setup**:
    ```bash
-   jupytext --to py notebook.ipynb
-   ```
-
-2. Remove embedded images from the converted file:
-   ```bash
-   python remove_images.py notebook.py
-   ```
-
-The result is a clean Python file without embedded base64 images, making it more readable and reducing file size significantly.
-
-## elasticsearch_setup.py
-
-A comprehensive Python script that creates and populates an Elasticsearch index with NER-rich synthetic sales data for Bose products. This data serves as one of the source connectors in a hybrid RAG pipeline.
-
-### Features
-
-- **Elastic Cloud Integration**: Connects directly to your Elasticsearch Cloud deployment
-- **NER-Optimized Data**: Generates synthetic sales records rich in named entities (people, organizations, locations, prices, dates)
-- **Semantic Text Support**: Uses `semantic_text` field type for enhanced search capabilities
-- **Bose Product Focus**: Covers SoundSport, OpenAudio, and QuietComfort product lines
-- **Realistic Sales Scenarios**: Creates contextual sales interactions with detailed customer information
-
-### Setup
-
-1. **Install Dependencies**:
-   ```bash
+   # Clone the repository
+   git clone <repository-url>
+   cd rag-over-hybrid-data-sources
+   
+   # Create and activate virtual environment
+   python3 -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   
+   # Install dependencies
    pip install -r requirements.txt
    ```
 
-2. **Configure Environment**:
+2. **Configuration**:
    ```bash
-   # Copy the template and add your credentials
-   cp env_template.txt .env
-   # Edit .env and add your ELASTIC_API_KEY
+   # Copy environment template
+   cp .env.template .env
+   
+   # Edit .env with your credentials:
+   # - UNSTRUCTURED_API_KEY=your-unstructured-api-key
+   # - ELASTICSEARCH_HOST=https://your-cluster.es.io:443
+   # - ELASTICSEARCH_API_KEY=your-elasticsearch-api-key
+   # - AWS_ACCESS_KEY_ID=your-aws-access-key
+   # - AWS_SECRET_ACCESS_KEY=your-aws-secret-key
+   # - S3_SOURCE_BUCKET=your-pdf-bucket
+   # - S3_DESTINATION_BUCKET=your-output-bucket
    ```
 
-3. **Run the Setup**:
-   ```bash
-   python elasticsearch_setup.py
-   ```
+### Running the Pipeline
 
-### Generated Data Structure
+#### Option 1: Python Script
+```bash
+# Activate virtual environment
+source venv/bin/activate
 
-Each sales record contains rich named entities perfect for NER extraction:
-
-- **PERSON**: Customer names, sales representatives
-- **ORG**: Retailers (Best Buy, Target, Amazon, etc.)
-- **LOCATION**: Cities and regions across the US
-- **MONEY**: Product prices and revenue potential
-- **DATE**: Timestamps, quarters, months
-- **PRODUCT**: Bose product lines and specific models
-
-### Example Generated Record
-
-```json
-{
-  "customer_name": "Jennifer Martinez",
-  "sales_representative": "Michael Chen", 
-  "product_model": "SoundSport Free",
-  "price": 149,
-  "retailer": "Best Buy",
-  "location_city": "New York, NY",
-  "interaction_text": "Customer Jennifer Martinez from New York, NY called to inquire about purchasing the SoundSport Free. Sales rep Michael Chen provided detailed product information and quoted $149. Customer is comparing with similar products at Best Buy.",
-  "text": "Customer Jennifer Martinez from New York, NY called to inquire about purchasing the SoundSport Free. Sales rep Michael Chen provided detailed product information and quoted $149. Customer is comparing with similar products at Best Buy."
-}
+# Run the pipeline
+python hybrid_rag_pipeline.py
 ```
 
-### Integration with Unstructured Workflow
+#### Option 2: Jupyter Notebook
+```bash
+# Start Jupyter
+jupyter lab
 
-This Elasticsearch index can be used as a source connector in the Unstructured Workflow Endpoint alongside S3 technical documentation to create a hybrid RAG system:
+# Open and run hybrid_rag_pipeline_enriched.ipynb
+```
 
-1. **S3 Source**: Technical manuals, troubleshooting guides, MSDS PDFs
-2. **Elasticsearch Source**: Synthetic sales data (this script)
-3. **NER Enrichment**: Extract named entities from both sources
-4. **Qdrant Destination**: Combined processed data for RAG queries
+## Data Sources Setup
 
-### Requirements
+### 1. Elasticsearch Sales Data
 
-See `requirements.txt` for Python dependencies:
-- elasticsearch>=8.0.0
-- python-dotenv>=0.19.0
-- faker>=15.0.0
-
-## verify_elasticsearch_data.py
-
-A comprehensive verification script that inspects and validates the synthetic sales data in your Elasticsearch index. Use this script to confirm that data was successfully uploaded and is ready for NER processing.
-
-### Features
-
-- **Connection Testing**: Verifies Elasticsearch cluster connectivity
-- **Index Validation**: Confirms the index exists and contains data
-- **Data Statistics**: Provides comprehensive metrics on document count, index size, and distribution
-- **Sample Document Display**: Shows actual records with key fields
-- **NER Readiness Check**: Validates that data contains rich named entities
-- **Search Query Testing**: Tests various search patterns to ensure data accessibility
-
-### Usage
+The pipeline requires a `sales-records-consolidated` index with sales data. You can create this using the provided preprocessing tools:
 
 ```bash
-python verify_elasticsearch_data.py
+# Run Elasticsearch preprocessing to create sample data
+python elasticsearch_index_preprocessing.py
 ```
 
-### What It Checks
+This creates:
+- `sales-records` - Raw sales data (100 records)
+- `sales-records-consolidated` - Processed sales data optimized for RAG
+- `customer-support` - Empty destination index (created fresh each run)
 
-1. **Basic Connectivity**: Tests connection to your Elasticsearch cluster
-2. **Index Existence**: Confirms the `sales-records` index exists
-3. **Document Count**: Reports total number of indexed documents
-4. **Data Distribution**: Analyzes breakdown by:
-   - Product lines (SoundSport, OpenAudio, QuietComfort)
-   - Product models
-   - Retailers (Best Buy, Target, Amazon, etc.)
-   - Geographic regions
-   - Interaction types
-   - Price and revenue statistics
-   - Temporal distribution (by year)
-5. **NER Entity Validation**: Confirms presence of:
-   - Person names (customers, sales reps)
-   - Organizations (retailers)
-   - Locations (cities, regions)
-   - Monetary values (prices)
-   - Dates (timestamps)
-   - Rich text content
-6. **Search Functionality**: Tests sample queries to verify data is searchable
+### 2. S3 Technical Documentation
 
-### Sample Output
+Upload your PDF documents to an S3 bucket. The pipeline supports:
+- Product manuals
+- Troubleshooting guides
+- MSDS documents
+- Technical specifications
+
+Supported S3 URL formats:
+- `s3://bucket-name/path/`
+- `https://bucket-name.s3.region.amazonaws.com/path/`
+- Raw bucket names: `bucket-name/path`
+
+## Pipeline Workflow
+
+### Step 0: Elasticsearch Preprocessing
+- ✅ Validates `sales-records-consolidated` exists and has data
+- ✅ Deletes and recreates fresh `customer-support` index
+- ❌ Fails with clear error if source data is missing
+
+### Step 1: Source Connectors
+- Creates S3 source connector for PDFs
+- Creates Elasticsearch source connector for sales data
+
+### Step 2: Destination Connector  
+- Creates Elasticsearch destination connector for `customer-support` index
+
+### Step 3: Workflow Creation
+- Creates parallel workflows for S3 and Elasticsearch sources
+- Both workflows use identical processing nodes:
+  - VLM Partitioner (GPT-4o)
+  - Smart Chunker (title-based)
+  - Vector Embedder (OpenAI)
+  - NER Enrichment (OpenAI)
+
+### Step 4: Execution
+- Runs both workflows in parallel
+- Monitors job status (optional)
+- Reports completion status
+
+## Project Structure
 
 ```
-🚀 Starting Elasticsearch Data Verification
-============================================================
-🔧 Testing Elasticsearch connection...
-✅ Connected to Elasticsearch cluster: instance-0000000000
-   Version: 8.11.0
-   Cluster: 2371b9a1d2ad40c590fd1e22652a8236
+rag-over-hybrid-data-sources/
+├── hybrid_rag_pipeline.py              # Main pipeline code
+├── hybrid_rag_pipeline_enriched.py     # Generated enriched version
+├── hybrid_rag_pipeline_enriched.ipynb  # Jupyter notebook
+├── elasticsearch_index_preprocessing.py # ES data setup
+├── requirements.txt                     # Python dependencies
+├── README.md                           # This file
+├── notebook-processing/                # Documentation pipeline
+│   ├── enrich_and_convert.py          # Notebook generation script
+│   ├── markdown_blocks.yaml           # Markdown content
+│   └── README.md                       # Documentation workflow
+├── elastic-search-index-setup/         # ES setup tools
+│   ├── create_consolidated_index.py
+│   ├── create_nonconsolidated_index.py
+│   └── verify_elasticsearch_data.py
+└── elasticsearch-example-data/         # Sample data
+    ├── consolidated_examples.json
+    └── nonconsolidated_examples.json
+```
 
-✅ Index 'sales-records' exists
-📊 Getting statistics for index 'sales-records'...
-   📄 Total documents: 500
-   💾 Index size: 245,760 bytes (0.23 MB)
-   🔧 Primary shards: 12
+## Configuration Options
 
-📋 Retrieving 5 sample documents...
-📄 Document 1:
-   🆔 ID: abc123-def456
-   👤 Customer: Jennifer Martinez
-   🏷️ Product: SoundSport Free
-   💰 Price: $149
-   🏪 Retailer: Best Buy
-   📍 Location: New York, NY
-   📅 Date: 2023-11-15T14:30:00
-   📝 Text: Customer Jennifer Martinez from New York, NY called to inquire about purchasing the SoundSport...
-``` 
+### Environment Variables
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `UNSTRUCTURED_API_KEY` | Your Unstructured API key | `your-api-key` |
+| `ELASTICSEARCH_HOST` | Elasticsearch cluster URL | `https://cluster.es.io:443` |
+| `ELASTICSEARCH_API_KEY` | Elasticsearch API key | `your-es-api-key` |
+| `ELASTICSEARCH_INDEX` | Source sales data index | `sales-records-consolidated` |
+| `AWS_ACCESS_KEY_ID` | AWS access key | `AKIA...` |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key | `your-secret-key` |
+| `S3_SOURCE_BUCKET` | S3 bucket with PDFs | `my-docs-bucket/manuals/` |
+| `S3_DESTINATION_BUCKET` | S3 output bucket | `my-output-bucket` |
+
+### Processing Parameters
+
+- **Chunking**: 1500 chars with 2048 max, title-based segmentation
+- **Embedding Model**: OpenAI text-embedding-3-small
+- **VLM Model**: GPT-4o for document parsing
+- **NER Model**: OpenAI NER extraction
+
+## Monitoring and Debugging
+
+### Pipeline Status
+The pipeline provides detailed status updates:
+- `:white_check_mark:` Success indicators
+- `:x:` Error indicators  
+- `📊` Progress information
+- `🔍` Validation steps
+
+### Common Issues
+
+1. **Missing Sales Data**:
+   ```
+   ❌ Index 'sales-records-consolidated' does not exist. There is no data to use.
+   ```
+   **Solution**: Run `python elasticsearch_index_preprocessing.py`
+
+2. **Empty Sales Index**:
+   ```
+   ❌ Index 'sales-records-consolidated' is empty. There is no data to use.
+   ```
+   **Solution**: Verify data was properly indexed
+
+3. **S3 Access Issues**:
+   ```
+   :x: Error creating S3 source connector: Access Denied
+   ```
+   **Solution**: Check AWS credentials and bucket permissions
+
+## Advanced Usage
+
+### Custom NER Configuration
+The NER enrichment node can be customized by updating the `settings` in `create_workflow_nodes()`:
+
+```python
+ner_enrichment_node = WorkflowNode(
+    name="NER_Enrichment",
+    subtype="openai_ner",
+    type="prompter",
+    settings={
+        "prompt": "Extract named entities focusing on products, customers, and locations..."
+    }
+)
+```
+
+### Multiple S3 Sources
+To process multiple S3 buckets, modify the S3 source connector creation or create additional workflows.
+
+### Custom Elasticsearch Mapping
+The `customer-support` index mapping can be customized in the `run_elasticsearch_preprocessing()` function.
+
+## Development Workflow
+
+### Notebook Content Management
+
+**Important**: Do not edit the Jupyter notebook directly!
+
+Instead, follow this workflow:
+
+1. **Edit Code**: Modify `hybrid_rag_pipeline.py`
+2. **Edit Documentation**: Update `notebook-processing/markdown_blocks.yaml`
+3. **Regenerate**: Run `python notebook-processing/enrich_and_convert.py`
+
+This process:
+- Replaces `[[MD:HANDLE]]` placeholders with markdown content
+- Generates `hybrid_rag_pipeline_enriched.py`
+- Converts to `hybrid_rag_pipeline_enriched.ipynb` using jupytext
+
+### Testing
+
+```bash
+# Test Elasticsearch connection
+python elasticsearch-index-setup/simple_check.py
+
+# Verify data setup
+python elasticsearch-index-setup/verify_elasticsearch_data.py
+
+# Run pipeline in test mode
+python hybrid_rag_pipeline.py
+```
+
+## API Reference
+
+### Core Functions
+
+- `run_elasticsearch_preprocessing()` - Validates and prepares ES indices
+- `create_s3_source_connector()` - Creates S3 PDF source
+- `create_elasticsearch_source_connector()` - Creates ES sales source  
+- `create_elasticsearch_destination_connector()` - Creates ES destination
+- `create_parallel_workflows()` - Sets up processing workflows
+- `run_workflow()` - Executes workflows
+- `poll_job_status()` - Monitors job progress
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make changes following the development workflow
+4. Test thoroughly
+5. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Support
+
+For questions or issues:
+1. Check the troubleshooting section above
+2. Review Unstructured API documentation
+3. Open an issue in the repository
+
+---
+
+**Note**: This pipeline demonstrates advanced RAG techniques using the Unstructured API. It's designed for educational and development purposes. For production use, consider additional error handling, monitoring, and security measures.
+

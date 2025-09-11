@@ -1,34 +1,87 @@
 #!/usr/bin/env python3
-"""
-Hybrid RAG Pipeline: S3 + Elasticsearch with NER
+# %% [markdown]
+# Hybrid RAG Pipeline: Multi-Source Data Processing with Unstructured API
+# 
+# This notebook demonstrates how to use the Unstructured Workflow Endpoint to process data
+# from multiple sources and send it to a single destination.
+# 
+# What you'll learn:
+# - Why and how we partition documents (VLM)
+# - How smart chunking improves retrieval
+# - How embeddings enable semantic search and RAG
+# - How two sources (PDFs in S3 and sales data in Elasticsearch) flow to a unified index
+# 
+# Data Flow (text diagram; side-scroll to view):
+# 
+# ```
+# [S3 PDFs] ------------------> [VLM Partition (GPT-4o)] --> [Smart Chunker] --> [Vector Embedder] --> [Elasticsearch: customer-support]
+# [Elasticsearch Sales] ------> [VLM Partition (GPT-4o)] --> [Smart Chunker] --> [Vector Embedder] --> [Elasticsearch: customer-support]
+# ```
+# 
+# Why this workflow?
+# - VLM Partition: converts PDFs and structured docs into consistent, structured elements
+# - Smart Chunker: creates semantically coherent units for retrieval
+# - Embeddings: enables similarity search across both sources
+# - Unified Index: powers hybrid retrieval and consistent downstream RAG
+# %%
 
-This script demonstrates a hybrid RAG pipeline using the Unstructured Workflow Endpoint.
-"""
+import sys, subprocess
+
+def ensure_notebook_deps() -> None:
+    packages = [
+        "jupytext",
+        "python-dotenv",
+        "unstructured-client",
+        "elasticsearch",
+        "boto3",
+        "PyYAML",
+    ]
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", *packages])
+    except Exception:
+        # If install fails, continue; imports below will surface actionable errors
+        pass
+
+# Install notebook dependencies (safe no-op if present)
+ensure_notebook_deps()
 
 import os
 import sys
 import time
 from dotenv import load_dotenv
+from urllib.parse import urlparse
 
 from unstructured_client import UnstructuredClient
 from unstructured_client.models.operations import (
     CreateSourceRequest,
-    CreateDestinationRequest
+    CreateDestinationRequest,
+    CreateWorkflowRequest
 )
 from unstructured_client.models.shared import (
     CreateSourceConnector,
     SourceConnectorType,
     CreateDestinationConnector,
     WorkflowNode,
-    WorkflowType
+    WorkflowType,
+    CreateWorkflow
 )
+from elasticsearch import Elasticsearch
+
+# Install notebook dependencies (safe no-op if present)
+ensure_notebook_deps()
 
 # Load environment variables
 load_dotenv()
 
-"""
-Configuration and environment variables used by the pipeline.
-"""
+# %% [markdown]
+# Configuration and environment variables used by the pipeline.
+# 
+# - AWS credentials and S3 bucket names (source PDFs, destination optional)
+# - Unstructured API key and server URL
+# - Elasticsearch host/API key and the working indices
+# 
+# The script validates critical variables at startup to prevent half-configured runs.
+# %%
 # Configuration
 SKIPPED = "SKIPPED"
 
@@ -36,9 +89,11 @@ SKIPPED = "SKIPPED"
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "your-access-key-id")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "your-secret-access-key")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-S3_SOURCE_BUCKET = os.getenv("S3_SOURCE_BUCKET", "example-data-bose-headphones")
-S3_DESTINATION_BUCKET = os.getenv("S3_DESTINATION_BUCKET", "example-data-bose-headphones-output")
+# These are HTTPS URL prefixes (not s3:// URIs)
+S3_SOURCE_BUCKET = os.getenv("S3_SOURCE_BUCKET")
+S3_DESTINATION_BUCKET = os.getenv("S3_DESTINATION_BUCKET")
 S3_OUTPUT_PREFIX = os.getenv("S3_OUTPUT_PREFIX", "")
+
 
 # Unstructured API Configuration
 UNSTRUCTURED_API_KEY = os.getenv("UNSTRUCTURED_API_KEY", "your-unstructured-api-key")
@@ -55,22 +110,20 @@ REQUIRED_VARS = {
     "AWS_SECRET_ACCESS_KEY": AWS_SECRET_ACCESS_KEY,
     "UNSTRUCTURED_API_KEY": UNSTRUCTURED_API_KEY,
     "ELASTICSEARCH_HOST": ELASTICSEARCH_HOST,
-    "ELASTICSEARCH_API_KEY": ELASTICSEARCH_API_KEY
+    "ELASTICSEARCH_API_KEY": ELASTICSEARCH_API_KEY,
+    "S3_SOURCE_BUCKET": S3_SOURCE_BUCKET,
+    "S3_DESTINATION_BUCKET": S3_DESTINATION_BUCKET,
 }
 
 missing_vars = [key for key, value in REQUIRED_VARS.items() if not value or value.startswith("your-")]
 if missing_vars:
     print(f"❌ Missing required configuration values: {', '.join(missing_vars)}")
     print("Please update your .env file with the required values.")
-    sys.exit(1)
+    raise ValueError(f"Missing required configuration values: {missing_vars}")
 
 print("✅ Configuration loaded successfully")
 
-# Initialize Unstructured client
-unstructured_client = UnstructuredClient(
-    api_key_auth=UNSTRUCTURED_API_KEY,
-    server_url=UNSTRUCTURED_API_URL
-)
+# Unstructured client will be initialized using context managers in each function
 
 def clear_output_bucket():
     """Clear all contents from the output S3 bucket before running pipeline"""
@@ -103,96 +156,155 @@ def clear_output_bucket():
     except Exception as e:
         print(f"⚠️ Could not clear bucket (continuing anyway): {e}")
 
-# [[MD:S3_SOURCE_CONNECTOR]]
+# %% [markdown]
+# Create an S3 source connector for PDF documents (Bose manuals, troubleshooting, safety docs).
+# 
+# Why: Product manuals and troubleshooting guides add authoritative reference material to the
+# knowledge base and complement the structured sales data.
+# 
+# Key settings:
+# - remote_url: s3://<bucket>/ with recursion enabled
+# - AWS credentials and region
+# %%
 
 def create_s3_source_connector():
-    """Create an S3 source connector for PDF documents."""
+    """Create an S3 source connector for PDF documents.
+
+    Accepts the following in S3_SOURCE_BUCKET and normalizes to s3:// for the connector:
+    - Raw bucket name (e.g., example-data-bose-headphones)
+    - Bucket + prefix (e.g., example-data-bose-headphones/manuals)
+    - s3:// URL (e.g., s3://example-data-bose-headphones/manuals/)
+    - HTTPS URL (e.g., https://example-data-bose-headphones.s3.us-east-2.amazonaws.com/manuals/)
+    """
     try:
-        response = unstructured_client.sources.create_source(
-            request=CreateSourceRequest(
-                create_source_connector=CreateSourceConnector(
-                    name=f"s3_pdf_source_{int(time.time())}",
-                    type=SourceConnectorType.S3,
-                    config={
-                        "remote_url": f"s3://{S3_SOURCE_BUCKET}/",
-                        "recursive": True,
-                        "key": AWS_ACCESS_KEY_ID,
-                        "secret": AWS_SECRET_ACCESS_KEY,
-                        "region": AWS_REGION
-                    }
+        if not S3_SOURCE_BUCKET:
+            raise ValueError("S3_SOURCE_BUCKET is required (bucket name, s3:// URL, or https:// URL)")
+        value = S3_SOURCE_BUCKET.strip()
+        print("value")
+        print(value)    
+        # Build s3:// URL from various accepted formats
+        if value.startswith("s3://"):
+            s3_style = value if value.endswith("/") else value + "/"
+        elif value.startswith("http://") or value.startswith("https://"):
+            parsed = urlparse(value)
+            host = parsed.netloc
+            path = parsed.path or "/"
+            bucket = host.split(".s3.")[0]
+            s3_style = f"s3://{bucket}{path if path.endswith('/') else path + '/'}"
+        else:
+            # treat as raw bucket or bucket/prefix
+            s3_style = f"s3://{value if value.endswith('/') else value + '/'}"
+        
+        print("s3_style")
+        print(s3_style)
+        with UnstructuredClient(api_key_auth=UNSTRUCTURED_API_KEY) as client:
+            response = client.sources.create_source(
+                request=CreateSourceRequest(
+                    create_source_connector=CreateSourceConnector(
+                        name="<name>",
+                        type="s3",
+                        config={
+                            "remote_url": s3_style,
+                            "recursive": True, 
+                            "key": AWS_ACCESS_KEY_ID,
+                            "secret": AWS_SECRET_ACCESS_KEY,
+                        }
+                    )
                 )
             )
-        )
+        
         
         source_id = response.source_connector_information.id
-        print(f"✅ Created S3 PDF source connector: {source_id}")
+        print(f":white_check_mark: Created S3 PDF source connector: {source_id} -> {s3_style}")
         return source_id
         
     except Exception as e:
-        print(f"❌ Error creating S3 source connector: {e}")
+        print(f":x: Error creating S3 source connector: {e}")
         return None
 
-"""
-Create an Elasticsearch source connector for consolidated sales data.
-"""
+# %% [markdown]
+# Create an Elasticsearch source connector for the consolidated sales data.
+# 
+# Why: The consolidated index produced during preprocessing contains realistic conversational
+# context (customers, products, prices, dates) and is ideal for retrieval-augmented analysis.
+# 
+# Key settings:
+# - hosts: the managed Elasticsearch endpoint
+# - es_api_key: API key for auth
+# - index_name: the consolidated sales index
+# %%
 
 def create_elasticsearch_source_connector():
     """Create an Elasticsearch source connector for sales data."""
     try:
-        response = unstructured_client.sources.create_source(
-            request=CreateSourceRequest(
-                create_source_connector=CreateSourceConnector(
-                    name=f"elasticsearch_sales_source_{int(time.time())}",
-                    type="elasticsearch",
-                    config={
-                        "hosts": [ELASTICSEARCH_HOST],
-                        "es_api_key": ELASTICSEARCH_API_KEY,
-                        "index_name": ELASTICSEARCH_INDEX
-                    }
+
+        with UnstructuredClient(api_key_auth=os.getenv("UNSTRUCTURED_API_KEY")) as client:
+            response = client.sources.create_source(
+                request=CreateSourceRequest(
+                    create_source_connector=CreateSourceConnector(
+                        name=f"elasticsearch_sales_source_{int(time.time())}",
+                        type="elasticsearch",
+                        config={
+                            "hosts": [ELASTICSEARCH_HOST],
+                            "es_api_key": ELASTICSEARCH_API_KEY,
+                            "index_name": ELASTICSEARCH_INDEX
+                        }
+                    )
                 )
             )
-        )
         
         source_id = response.source_connector_information.id
-        print(f"✅ Created Elasticsearch sales source connector: {source_id}")
+        print(f":white_check_mark: Created Elasticsearch sales source connector: {source_id}")
         return source_id
-        
+    
     except Exception as e:
-        print(f"❌ Error creating Elasticsearch source connector: {e}")
+        print(f":x: Error creating Elasticsearch source connector: {e}")
         return None
 
-"""
-Create an Elasticsearch destination connector for the customer-support index.
-"""
+# %% [markdown]
+# Create an Elasticsearch destination connector for the `customer-support` index.
+# 
+# Why: We send outputs from both workflows here to power hybrid retrieval for support use cases.
+# %%
 
 def create_elasticsearch_destination_connector():
     """Create an Elasticsearch destination connector for processed results."""
     try:
-        response = unstructured_client.destinations.create_destination(
-            request=CreateDestinationRequest(
-                create_destination_connector=CreateDestinationConnector(
-                    name=f"elasticsearch_customer_support_destination_{int(time.time())}",
-                    type="elasticsearch",
-                    config={
-                        "hosts": [ELASTICSEARCH_HOST],
-                        "es_api_key": ELASTICSEARCH_API_KEY,
-                        "index_name": "customer-support"
-                    }
+        with UnstructuredClient(api_key_auth=os.getenv("UNSTRUCTURED_API_KEY")) as client:
+            response = client.destinations.create_destination(
+                request=CreateDestinationRequest(
+                    create_destination_connector=CreateDestinationConnector(
+                        name=f"elasticsearch_customer_support_destination_{int(time.time())}",
+                        type="elasticsearch",
+                        config={
+                            "hosts": [ELASTICSEARCH_HOST],
+                            "es_api_key": ELASTICSEARCH_API_KEY,
+                            "index_name": "customer-support"
+                        }
+                    )
                 )
             )
-        )
-        
+
+            print(response.destination_connector_information)
+
         destination_id = response.destination_connector_information.id
-        print(f"✅ Created Elasticsearch destination connector: {destination_id}")
+        print(f":white_check_mark: Created Elasticsearch destination connector: {destination_id}")
         return destination_id
         
     except Exception as e:
-        print(f"❌ Error creating Elasticsearch destination connector: {e}")
+        print(f":x: Error creating Elasticsearch destination connector: {e}")
         return None
 
-"""
-Shared workflow nodes: VLM partition, chunking, embedding, and NER enrichment.
-"""
+# %% [markdown]
+# Shared workflow nodes used by both sources:
+# 
+# - VLM partition (GPT-4o): understands PDFs and structured docs, emitting structured elements
+# - Smart chunking: title-based chunking (1500–2048 chars, 0 overlap) for retrieval-friendly units
+# - Embedding: OpenAI `text-embedding-3-small` for semantic search
+# - NER enrichment (prompter/openai_ner): optional entity extraction for analysis/metadata
+# 
+# Reusing the same stack ensures comparable outputs across sources.
+# %%
 
 def create_workflow_nodes():
     """Create shared processing nodes for workflows."""
@@ -241,9 +353,12 @@ def create_workflow_nodes():
     
     return vlm_partition_node, chunk_node, embedder_node, ner_enrichment_node
 
-"""
-Create two workflows (S3 PDFs and Elasticsearch) that both write to the customer-support index.
-"""
+# %% [markdown]
+# Create two workflows (S3 PDFs and Elasticsearch) that both write to `customer-support`.
+# 
+# Why: A single destination simplifies downstream retrieval and validation. Consistency of nodes
+# ensures the embeddings/chunks are comparable regardless of origin.
+# %%
 
 def create_parallel_workflows(s3_source_id, elasticsearch_source_id, destination_id):
     """Create separate workflows for S3 PDFs and Elasticsearch data that run in parallel."""
@@ -253,75 +368,85 @@ def create_parallel_workflows(s3_source_id, elasticsearch_source_id, destination
         # Create workflow for S3 PDFs
         s3_workflow_id = None
         if s3_source_id:
-            s3_response = unstructured_client.workflows.create_workflow(
-                request={
-                    "create_workflow": {
-                        "name": f"S3-PDFs-Parallel-Workflow_{int(time.time())}",
-                        "source_id": s3_source_id,
-                        "destination_id": destination_id,
-                        "workflow_type": WorkflowType.CUSTOM,
-                        "workflow_nodes": [
-                            vlm_partition_node,
-                            chunk_node,
-                            embedder_node,
-                            ner_enrichment_node
-                        ],
-                    }
-                }
-            )
-            
-            s3_workflow_id = s3_response.workflow_information.id
-            print(f"✅ Created S3 PDF workflow: {s3_workflow_id}")
-        
-        # Create workflow for Elasticsearch sales data
-        es_response = unstructured_client.workflows.create_workflow(
-            request={
-                "create_workflow": {
-                    "name": f"Elasticsearch-Sales-Parallel-Workflow_{int(time.time())}",
-                    "source_id": elasticsearch_source_id,
-                    "destination_id": destination_id,
-                    "workflow_type": WorkflowType.CUSTOM,
-                    "workflow_nodes": [
+            with UnstructuredClient(api_key_auth=UNSTRUCTURED_API_KEY) as client:
+                s3_workflow = CreateWorkflow(
+                    name=f"S3-PDFs-Parallel-Workflow_{int(time.time())}",
+                    source_id=s3_source_id,
+                    destination_id=destination_id,
+                    workflow_type=WorkflowType.CUSTOM,
+                    workflow_nodes=[
                         vlm_partition_node,
                         chunk_node,
                         embedder_node,
                         ner_enrichment_node
-                    ],
-                }
-            }
-        )
+                    ]
+                )
+                
+                s3_response = client.workflows.create_workflow(
+                    request=CreateWorkflowRequest(
+                        create_workflow=s3_workflow
+                    )
+                )
+            
+            s3_workflow_id = s3_response.workflow_information.id
+            print(f":white_check_mark: Created S3 PDF workflow: {s3_workflow_id}")
+        
+        # Create workflow for Elasticsearch sales data
+        with UnstructuredClient(api_key_auth=UNSTRUCTURED_API_KEY) as client:
+            es_workflow = CreateWorkflow(
+                name=f"Elasticsearch-Sales-Parallel-Workflow_{int(time.time())}",
+                source_id=elasticsearch_source_id,
+                destination_id=destination_id,
+                workflow_type=WorkflowType.CUSTOM,
+                workflow_nodes=[
+                    vlm_partition_node,
+                    chunk_node,
+                    embedder_node,
+                    ner_enrichment_node
+                ]
+            )
+            
+            es_response = client.workflows.create_workflow(
+                request=CreateWorkflowRequest(
+                    create_workflow=es_workflow
+                )
+            )
         
         es_workflow_id = es_response.workflow_information.id
-        print(f"✅ Created Elasticsearch sales workflow: {es_workflow_id}")
+        print(f":white_check_mark: Created Elasticsearch sales workflow: {es_workflow_id}")
         
         return s3_workflow_id, es_workflow_id
         
     except Exception as e:
-        print(f"❌ Error creating parallel workflows: {e}")
+        print(f":x: Error creating parallel workflows: {e}")
         return None, None
 
-"""
-Utility to start a workflow run and return the job id.
-"""
+# %% [markdown]
+# Start a workflow and capture the returned job ID for tracking.
+# 
+# Why: Jobs are asynchronous; you can poll or monitor in the Unstructured dashboard.
+# %%
 
 def run_workflow(workflow_id, workflow_name):
     """Run a workflow and return job information."""
     try:
-        response = unstructured_client.workflows.run_workflow(
-            request={"workflow_id": workflow_id}
-        )
+        with UnstructuredClient(api_key_auth=UNSTRUCTURED_API_KEY) as client:
+            response = client.workflows.run_workflow(
+                request={"workflow_id": workflow_id}
+            )
         
         job_id = response.job_information.id
-        print(f"✅ Started {workflow_name} job: {job_id}")
+        print(f":white_check_mark: Started {workflow_name} job: {job_id}")
         return job_id
         
     except Exception as e:
-        print(f"❌ Error running {workflow_name} workflow: {e}")
+        print(f":x: Error running {workflow_name} workflow: {e}")
         return None
 
-"""
-Job polling (optional). We currently show how to enable/disable it.
-"""
+# %% [markdown]
+# Optional job polling. In this example, polling is disabled by default. Use the dashboard or
+# enable the poller if you need to block until completion.
+# %%
 
 def poll_job_status(job_id, job_name, wait_time=30):
     """Poll job status until completion."""
@@ -329,9 +454,10 @@ def poll_job_status(job_id, job_name, wait_time=30):
     
     while True:
         try:
-            response = unstructured_client.jobs.get_job(
-                request={"job_id": job_id}
-            )
+            with UnstructuredClient(api_key_auth=UNSTRUCTURED_API_KEY) as client:
+                response = client.jobs.get_job(
+                    request={"job_id": job_id}
+                )
             
             job = response.job_information
             status = job.status
@@ -339,40 +465,99 @@ def poll_job_status(job_id, job_name, wait_time=30):
             if status in ["SCHEDULED", "IN_PROGRESS"]:
                 time.sleep(wait_time)
             elif status == "COMPLETED":
-                print(f"✅ {job_name} job completed successfully!")
+                print(f":white_check_mark: {job_name} job completed successfully!")
                 return job
             elif status == "FAILED":
-                print(f"❌ {job_name} job failed!")
+                print(f":x: {job_name} job failed!")
                 return job
             else:
                 print(f"❓ Unknown {job_name} job status: {status}")
                 return job
                 
         except Exception as e:
-            print(f"❌ Error polling {job_name} job status: {e}")
+            print(f":x: Error polling {job_name} job status: {e}")
             time.sleep(wait_time)
 
-"""
-Preprocess Elasticsearch: create consolidated index and customer-support index.
-"""
+# %% [markdown]
+# Elasticsearch preprocessing creates both non-consolidated and consolidated indices with synthetic
+# records, then initializes the `customer-support` index. This guarantees that source data and
+# destination indexes exist before the workflows run.
+# %%
 
 def run_elasticsearch_preprocessing():
-    """Run Elasticsearch preprocessing to create required indices."""
+    """Check and manage Elasticsearch indices for the pipeline."""
     print("🔧 Running Elasticsearch preprocessing...")
     
     try:
-        from elasticsearch_index_preprocessing import run_elasticsearch_preprocessing
-        return run_elasticsearch_preprocessing()
-    except ImportError:
-        print("⚠️ Elasticsearch preprocessing module not found, skipping...")
+        # Initialize Elasticsearch client
+        es = Elasticsearch(
+            ELASTICSEARCH_HOST,
+            api_key=ELASTICSEARCH_API_KEY,
+            request_timeout=60,
+            max_retries=3,
+            retry_on_timeout=True
+        )
+        
+        # Check sales-records-consolidated index
+        sales_index = "sales-records-consolidated"
+        print(f"🔍 Checking {sales_index} index...")
+        
+        if not es.indices.exists(index=sales_index):
+            raise ValueError(f"❌ Index '{sales_index}' does not exist. There is no data to use.")
+        
+        # Check if sales index has data
+        count_response = es.count(index=sales_index)
+        doc_count = count_response['count']
+        
+        if doc_count == 0:
+            raise ValueError(f"❌ Index '{sales_index}' is empty. There is no data to use.")
+        
+        print(f"✅ Found {doc_count} records in {sales_index}")
+        
+        # Handle customer-support index
+        support_index = "customer-support"
+        print(f"🔍 Checking {support_index} index...")
+        
+        if es.indices.exists(index=support_index):
+            print(f"🗑️ Deleting existing {support_index} index...")
+            es.indices.delete(index=support_index)
+        
+        # Create fresh customer-support index
+        print(f"🔧 Creating fresh {support_index} index...")
+        mapping = {
+            "settings": {
+                "number_of_shards": 1,
+                "number_of_replicas": 1
+            },
+            "mappings": {
+                "properties": {
+                    "id": {"type": "keyword"},
+                    "timestamp": {"type": "date"},
+                    "text": {"type": "text", "analyzer": "standard"},
+                    "metadata": {"type": "object"}
+                }
+            }
+        }
+        
+        es.indices.create(index=support_index, body=mapping)
+        es.indices.refresh(index=support_index)
+        
+        print(f"✅ Successfully created fresh {support_index} index")
+        print("✅ Elasticsearch preprocessing completed successfully")
         return True
+        
+    except ValueError as e:
+        print(str(e))
+        return False
     except Exception as e:
-        print(f"❌ Error running Elasticsearch preprocessing: {e}")
+        print(f"❌ Error during Elasticsearch preprocessing: {e}")
         return False
 
-"""
-Print a concise pipeline summary with connector IDs, workflow IDs, and job IDs.
-"""
+# %% [markdown]
+# Print a concise summary with connector and workflow IDs and job IDs. Use
+# `verify_customer_support_index.py` to validate that both S3 and Elasticsearch sources appear in
+# the destination index.
+# %%
 
 def print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id, s3_job, es_job):
     """Print comprehensive pipeline summary."""
@@ -415,9 +600,11 @@ def print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id,
     else:
         print("💡 Check the Unstructured dashboard for detailed job status.")
 
-"""
-Orchestrate the full pipeline steps from preprocessing to summary.
-"""
+# %% [markdown]
+# Orchestrate the full pipeline: preprocessing → connectors → workflows → runs → summary.
+# 
+# Tip: If you want blocking runs, enable the job polling function for both jobs.
+# %%
 
 def main():
     """Main pipeline execution"""
@@ -494,5 +681,3 @@ def main():
     # Step 6: Pipeline Summary
     print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id, s3_job, es_job)
 
-if __name__ == "__main__":
-    main()
