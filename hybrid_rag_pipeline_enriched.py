@@ -1,28 +1,72 @@
 #!/usr/bin/env python3
 # %% [markdown]
-# Hybrid RAG Pipeline: Multi-Source Data Processing with Unstructured API
+# # Hybrid RAG Pipeline: Multi-Source Data Processing with Unstructured API
 # 
 # This notebook demonstrates how to use the Unstructured Workflow Endpoint to process data
-# from multiple sources and send it to a single destination.
+# from multiple sources and send it to a single destination using **parallel workflows**.
 # 
-# What you'll learn:
-# - Why and how we partition documents (VLM)
-# - How smart chunking improves retrieval
-# - How embeddings enable semantic search and RAG
-# - How two sources (PDFs in S3 and sales data in Elasticsearch) flow to a unified index
+# ## What you'll learn:
+# - How Unstructured's 7-stage pipeline transforms raw data into RAG-ready vectors
+# - Why parallel workflows enable efficient multi-source processing
+# - How VLM partitioning handles both PDFs and structured data consistently
+# - How smart chunking and embeddings create a unified knowledge base
 # 
-# Data Flow (text diagram; side-scroll to view):
+# ## Parallel Workflow Architecture
 # 
 # ```
-# [S3 PDFs] ------------------> [VLM Partition (GPT-4o)] --> [Smart Chunker] --> [Vector Embedder] --> [Elasticsearch: customer-support]
-# [Elasticsearch Sales] ------> [VLM Partition (GPT-4o)] --> [Smart Chunker] --> [Vector Embedder] --> [Elasticsearch: customer-support]
+# ┌─────────────────┐                    ┌──────────────────────────────────────────────────────┐
+# │   S3 PDFs       │                    │              UNSTRUCTURED API PROCESSING             │
+# │ (Tech Manuals,  │────────────────────┤                                                      │
+# │  Safety Docs)   │                    │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐ │
+# └─────────────────┘                    │  │Connect  │  │ Route   │  │Transform│  │  Chunk  │ │
+#                                        │  │   ↓     │  │   ↓     │  │   ↓     │  │    ↓    │ │
+# ┌─────────────────┐    WORKFLOW 1      │  │ S3 Src  │→ │VLM Auto │→ │Elements │→ │By Title │ │
+# │ Elasticsearch   │────────────────────┤  └─────────┘  └─────────┘  └─────────┘  └─────────┘ │
+# │ (Sales Records) │                    │                                                      │
+# └─────────────────┘                    │  ┌─────────┐  ┌─────────┐  ┌─────────┐              │
+#                                        │  │Connect  │  │ Route   │  │Transform│              │
+#                    WORKFLOW 2          │  │   ↓     │  │   ↓     │  │   ↓     │              │
+#                                        │  │ ES Src  │→ │VLM Auto │→ │Elements │──────────────┤
+#                                        │  └─────────┘  └─────────┘  └─────────┘              │
+#                                        │                                                      │
+#                                        │  ┌─────────┐  ┌─────────┐  ┌─────────┐              │
+#                                        │  │ Enrich  │  │ Embed   │  │ Persist │              │
+#                                        │  │   ↓     │  │   ↓     │  │   ↓     │              │
+#                                        │  │OpenAI   │→ │OpenAI   │→ │   ES    │              │
+#                                        │  │  NER    │  │text-emb │  │customer-│              │
+#                                        │  │         │  │ -3-small│  │support  │              │
+#                                        │  └─────────┘  └─────────┘  └─────────┘              │
+#                                        └──────────────────────────────────────────────────────┘
+#                                                                           │
+#                                        ┌──────────────────────────────────▼───────────────────┐
+#                                        │           UNIFIED KNOWLEDGE BASE                      │
+#                                        │         Elasticsearch: customer-support              │
+#                                        │                                                       │
+#                                        │  • PDF content (manuals, troubleshooting)            │
+#                                        │  • Sales data (customer interactions, products)      │
+#                                        │  • Consistent chunking & embeddings                  │
+#                                        │  • Ready for hybrid RAG queries                      │
+#                                        └───────────────────────────────────────────────────────┘
 # ```
 # 
-# Why this workflow?
-# - VLM Partition: converts PDFs and structured docs into consistent, structured elements
-# - Smart Chunker: creates semantically coherent units for retrieval
-# - Embeddings: enables similarity search across both sources
-# - Unified Index: powers hybrid retrieval and consistent downstream RAG
+# ## Why Parallel Workflows?
+# 
+# **🚀 Efficiency**: Both data sources process simultaneously rather than sequentially
+# 
+# **🔄 Consistency**: Same processing nodes (VLM → Chunk → Embed → NER) ensure comparable outputs
+# 
+# **📊 Scalability**: Each workflow can be monitored, scheduled, and scaled independently
+# 
+# **🎯 Unified Destination**: Both workflows write to the same `customer-support` index for seamless hybrid retrieval
+# 
+# ## Unstructured's 7-Stage Pipeline:
+# 1. **Connect**: Source connectors (S3, Elasticsearch) ingest data
+# 2. **Route**: Auto partitioning strategy selects optimal processing (VLM for complex docs)
+# 3. **Transform**: Documents converted to Unstructured's canonical JSON schema
+# 4. **Chunk**: By-title chunking creates semantically coherent retrieval units
+# 5. **Enrich**: Optional NER extraction adds metadata and entities
+# 6. **Embed**: OpenAI embeddings enable semantic similarity search
+# 7. **Persist**: Destination connector writes processed data to vector database
 # %%
 
 import sys, subprocess
@@ -354,10 +398,28 @@ def create_workflow_nodes():
     return vlm_partition_node, chunk_node, embedder_node, ner_enrichment_node
 
 # %% [markdown]
-# Create two workflows (S3 PDFs and Elasticsearch) that both write to `customer-support`.
+# ## Creating Parallel Workflows
 # 
-# Why: A single destination simplifies downstream retrieval and validation. Consistency of nodes
-# ensures the embeddings/chunks are comparable regardless of origin.
+# We create **two independent workflows** that process different data sources in parallel:
+# 
+# ### Workflow 1: S3 PDF Processing
+# - **Source**: S3 bucket containing technical manuals, troubleshooting guides, safety documents
+# - **Processing**: VLM partition → Smart chunking → OpenAI embeddings → NER enrichment
+# - **Destination**: Elasticsearch `customer-support` index
+# 
+# ### Workflow 2: Elasticsearch Sales Data Processing  
+# - **Source**: Elasticsearch `sales-records-consolidated` index with customer interactions
+# - **Processing**: Same pipeline (VLM → Chunk → Embed → NER) for consistency
+# - **Destination**: Same Elasticsearch `customer-support` index
+# 
+# ### Key Benefits:
+# - **⚡ Parallel Execution**: Both workflows run simultaneously, reducing total processing time
+# - **🔄 Consistent Processing**: Same node configuration ensures comparable output quality
+# - **📍 Unified Destination**: Single index simplifies downstream RAG queries and validation
+# - **🎯 Independent Monitoring**: Each workflow can be tracked, scheduled, and managed separately
+# 
+# The result is a unified knowledge base where PDF technical documentation and structured sales data 
+# are processed with the same quality standards and stored together for hybrid retrieval.
 # %%
 
 def create_parallel_workflows(s3_source_id, elasticsearch_source_id, destination_id):
@@ -479,9 +541,28 @@ def poll_job_status(job_id, job_name, wait_time=30):
             time.sleep(wait_time)
 
 # %% [markdown]
-# Elasticsearch preprocessing creates both non-consolidated and consolidated indices with synthetic
-# records, then initializes the `customer-support` index. This guarantees that source data and
-# destination indexes exist before the workflows run.
+# ## Smart Elasticsearch Index Management
+# 
+# Our preprocessing implements intelligent index validation and management:
+# 
+# ### Index Validation Logic:
+# 1. **Check `sales-records-consolidated`**: 
+#    - ✅ Must exist and contain data (our source)
+#    - ❌ If missing/empty → Error: "There is no data to use"
+# 
+# 2. **Manage `customer-support`**:
+#    - 🗑️ If exists with data → Delete all records and recreate fresh
+#    - 🆕 If doesn't exist → Create new with proper mapping
+#    - 🎯 Result: Clean destination ready for processed data
+# 
+# ### Why This Approach?
+# - **🛡️ Data Integrity**: Ensures source data exists before processing
+# - **🔄 Clean Slate**: Fresh destination prevents mixing old/new processed data  
+# - **⚡ Automated**: No manual index management required
+# - **🎯 Fail-Fast**: Catches configuration issues early in the pipeline
+# 
+# This preprocessing step runs before creating workflows, ensuring a reliable foundation
+# for our parallel processing architecture.
 # %%
 
 def run_elasticsearch_preprocessing():

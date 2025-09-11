@@ -14,31 +14,52 @@ The pipeline processes both structured and unstructured data sources in parallel
 
 ## Architecture
 
+### Parallel Workflow Processing
+
 ```
-┌─────────────────┐    ┌──────────────────────┐
-│   S3 PDFs       │    │  Elasticsearch       │
-│  (Technical     │    │  (Sales Records)     │
-│   Manuals)      │    │                      │
-└─────────┬───────┘    └──────────┬───────────┘
-          │                       │
-          └───────┬───────────────┘
-                  │
-          ┌───────▼───────┐
-          │  Unstructured │
-          │   Workflows   │
-          │               │
-          │ • VLM Parser  │
-          │ • Chunking    │
-          │ • Embedding   │
-          │ • NER Extract │
-          └───────┬───────┘
-                  │
-          ┌───────▼───────┐
-          │ Elasticsearch │
-          │customer-support│
-          │     Index      │
-          └───────────────┘
+┌─────────────────┐                    ┌──────────────────────────────────────────────────────┐
+│   S3 PDFs       │                    │              UNSTRUCTURED API PROCESSING             │
+│ (Tech Manuals,  │────────────────────┤                                                      │
+│  Safety Docs)   │                    │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────┐ │
+└─────────────────┘                    │  │Connect  │  │ Route   │  │Transform│  │  Chunk  │ │
+                                       │  │   ↓     │  │   ↓     │  │   ↓     │  │    ↓    │ │
+┌─────────────────┐    WORKFLOW 1      │  │ S3 Src  │→ │VLM Auto │→ │Elements │→ │By Title │ │
+│ Elasticsearch   │────────────────────┤  └─────────┘  └─────────┘  └─────────┘  └─────────┘ │
+│ (Sales Records) │                    │                                                      │
+└─────────────────┘                    │  ┌─────────┐  ┌─────────┐  ┌─────────┐              │
+                                       │  │Connect  │  │ Route   │  │Transform│              │
+                   WORKFLOW 2          │  │   ↓     │  │   ↓     │  │   ↓     │              │
+                                       │  │ ES Src  │→ │VLM Auto │→ │Elements │──────────────┤
+                                       │  └─────────┘  └─────────┘  └─────────┘              │
+                                       │                                                      │
+                                       │  ┌─────────┐  ┌─────────┐  ┌─────────┐              │
+                                       │  │ Enrich  │  │ Embed   │  │ Persist │              │
+                                       │  │   ↓     │  │   ↓     │  │   ↓     │              │
+                                       │  │OpenAI   │→ │OpenAI   │→ │   ES    │              │
+                                       │  │  NER    │  │text-emb │  │customer-│              │
+                                       │  │         │  │ -3-small│  │support  │              │
+                                       │  └─────────┘  └─────────┘  └─────────┘              │
+                                       └──────────────────────────────────────────────────────┘
+                                                                          │
+                                       ┌──────────────────────────────────▼───────────────────┐
+                                       │           UNIFIED KNOWLEDGE BASE                      │
+                                       │         Elasticsearch: customer-support              │
+                                       │                                                       │
+                                       │  • PDF content (manuals, troubleshooting)            │
+                                       │  • Sales data (customer interactions, products)      │
+                                       │  • Consistent chunking & embeddings                  │
+                                       │  • Ready for hybrid RAG queries                      │
+                                       └───────────────────────────────────────────────────────┘
 ```
+
+### Unstructured's 7-Stage Pipeline:
+1. **Connect**: Source connectors (S3, Elasticsearch) ingest data
+2. **Route**: Auto partitioning strategy selects optimal processing (VLM for complex docs)  
+3. **Transform**: Documents converted to Unstructured's canonical JSON schema
+4. **Chunk**: By-title chunking creates semantically coherent retrieval units
+5. **Enrich**: Optional NER extraction adds metadata and entities
+6. **Embed**: OpenAI embeddings enable semantic similarity search
+7. **Persist**: Destination connector writes processed data to vector database
 
 ## Features
 
