@@ -141,6 +141,49 @@
 # ELASTICSEARCH_INDEX=sales-records-consolidated
 # ```
 # 
+# ### API Key Role Configuration
+# 
+# For this pipeline to work properly, your Elasticsearch API key needs the following role configuration with full access to the required indices:
+# 
+# ```json
+# {
+#   "sales-records-full-access": {
+#     "cluster": [],
+#     "indices": [
+#       {
+#         "names": [
+#           "sales-records",
+#           "sales-records-consolidated",
+#           "customer-support"
+#         ],
+#         "privileges": [
+#           "create_index",
+#           "delete_index",
+#           "manage",
+#           "write",
+#           "read",
+#           "view_index_metadata",
+#           "monitor"
+#         ],
+#         "allow_restricted_indices": false
+#       }
+#     ],
+#     "applications": [],
+#     "run_as": [],
+#     "metadata": {},
+#     "transient_metadata": {
+#       "enabled": true
+#     }
+#   }
+# }
+# ```
+# 
+# This role provides the necessary permissions to:
+# - Create and delete the `customer-support` index
+# - Read from the `sales-records-consolidated` source index
+# - Write processed results to the destination index
+# - Monitor index status and metadata
+# 
 # ### Pipeline Validation
 # 
 # The pipeline validates that the source index (`sales-records-consolidated`) exists and contains data before proceeding with workflow execution. If the index is missing or empty, the pipeline will exit with an error.
@@ -341,7 +384,7 @@ print("✅ Configuration loaded successfully")
 # ### Data Sources
 # 
 # **Elasticsearch Sales Data:**
-# - Downloads from: `https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/sales_data.zip`
+# - Downloads from: `https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/sales_records_consolidated.zip`
 # - Creates the `sales-records-consolidated` index
 # - Loads 100 synthetic sales records with proper mapping
 # 
@@ -349,22 +392,6 @@ print("✅ Configuration loaded successfully")
 # - Downloads from: `https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/s3_pdfs.zip`
 # - Creates S3 bucket using the `S3_SOURCE_BUCKET` environment variable
 # - Uploads 9 Bose headphone manuals and support documents
-# 
-# ### Smart Caching
-# 
-# The data preparation step is intelligent:
-# - **Skips download** if data already exists and is populated
-# - **Verifies data integrity** by checking document/file counts
-# - **Reports status** of existing vs. newly created resources
-# 
-# ### Error Handling
-# 
-# If data preparation fails:
-# - Clear error messages indicate the specific issue
-# - Pipeline stops execution to prevent running with incomplete data
-# - Common issues: network connectivity, authentication, or storage permissions
-# 
-# This automated setup ensures anyone can run the pipeline immediately after configuring their credentials, without manual data preparation steps.
 # %%
 
 def download_file(url: str, local_path: str) -> bool:
@@ -402,17 +429,10 @@ def setup_elasticsearch_data():
             retry_on_timeout=True
         )
         
-        # Check if index already exists and has data
         index_name = "sales-records-consolidated"
-        if es.indices.exists(index=index_name):
-            count_response = es.count(index=index_name)
-            count_data = count_response.body if hasattr(count_response, 'body') else count_response
-            if count_data['count'] > 0:
-                print(f"✅ Index '{index_name}' already exists with {count_data['count']} documents")
-                return True
         
         # Download sales data zip file
-        sales_data_url = "https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/sales_data.zip"
+        sales_data_url = "https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/sales_records_consolidated.zip"
         
         with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp_file:
             if not download_file(sales_data_url, tmp_file.name):
@@ -428,9 +448,9 @@ def setup_elasticsearch_data():
                 with zipf.open('documents.json') as f:
                     documents = json.loads(f.read().decode('utf-8'))
             
-            # Delete existing index if present
+            # Always delete existing index if present and reload from zip
             if es.indices.exists(index=index_name):
-                print(f"🗑️ Deleting existing index '{index_name}'...")
+                print(f"🗑️ Deleting existing index '{index_name}' to reload fresh data...")
                 es.indices.delete(index=index_name)
             
             # Create index with mapping
@@ -474,7 +494,6 @@ def setup_elasticsearch_data():
             os.unlink(tmp_file.name)
         except:
             pass
-
 def setup_s3_data():
     """Download and load PDF files into S3 bucket."""
     print("🔧 Setting up S3 PDF data...")

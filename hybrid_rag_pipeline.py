@@ -177,14 +177,7 @@ def setup_elasticsearch_data():
             retry_on_timeout=True
         )
         
-        # Check if index already exists and has data
         index_name = "sales-records-consolidated"
-        if es.indices.exists(index=index_name):
-            count_response = es.count(index=index_name)
-            count_data = count_response.body if hasattr(count_response, 'body') else count_response
-            if count_data['count'] > 0:
-                print(f"✅ Index '{index_name}' already exists with {count_data['count']} documents")
-                return True
         
         # Download sales data zip file
         sales_data_url = "https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/sales_records_consolidated.zip"
@@ -203,9 +196,9 @@ def setup_elasticsearch_data():
                 with zipf.open('documents.json') as f:
                     documents = json.loads(f.read().decode('utf-8'))
             
-            # Delete existing index if present
+            # Always delete existing index if present and reload from zip
             if es.indices.exists(index=index_name):
-                print(f"🗑️ Deleting existing index '{index_name}'...")
+                print(f"🗑️ Deleting existing index '{index_name}' to reload fresh data...")
                 es.indices.delete(index=index_name)
             
             # Create index with mapping
@@ -249,7 +242,6 @@ def setup_elasticsearch_data():
             os.unlink(tmp_file.name)
         except:
             pass
-
 def setup_s3_data():
     """Download and load PDF files into S3 bucket."""
     print("🔧 Setting up S3 PDF data...")

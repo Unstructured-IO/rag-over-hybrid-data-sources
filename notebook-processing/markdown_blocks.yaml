@@ -146,11 +146,53 @@ ELASTICSEARCH_SETUP: |
   ELASTICSEARCH_INDEX=sales-records-consolidated
   ```
 
+  ### API Key Role Configuration
+
+  For this pipeline to work properly, your Elasticsearch API key needs the following role configuration with full access to the required indices:
+
+  ```json
+  {
+    "sales-records-full-access": {
+      "cluster": [],
+      "indices": [
+        {
+          "names": [
+            "sales-records",
+            "sales-records-consolidated",
+            "customer-support"
+          ],
+          "privileges": [
+            "create_index",
+            "delete_index",
+            "manage",
+            "write",
+            "read",
+            "view_index_metadata",
+            "monitor"
+          ],
+          "allow_restricted_indices": false
+        }
+      ],
+      "applications": [],
+      "run_as": [],
+      "metadata": {},
+      "transient_metadata": {
+        "enabled": true
+      }
+    }
+  }
+  ```
+
+  This role provides the necessary permissions to:
+  - Create and delete the `customer-support` index
+  - Read from the `sales-records-consolidated` source index
+  - Write processed results to the destination index
+  - Monitor index status and metadata
+
   ### Pipeline Validation
 
   The pipeline validates that the source index (`sales-records-consolidated`) exists and contains data before proceeding with workflow execution. If the index is missing or empty, the pipeline will exit with an error.
   """
-
 CONFIG: |
   """
   ## Environment Configuration
@@ -217,7 +259,7 @@ DATA_PREPARATION: |
   ### Data Sources
 
   **Elasticsearch Sales Data:**
-  - Downloads from: `https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/sales_data.zip`
+  - Downloads from: `https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/sales_records_consolidated.zip`
   - Creates the `sales-records-consolidated` index
   - Loads 100 synthetic sales records with proper mapping
 
@@ -226,21 +268,6 @@ DATA_PREPARATION: |
   - Creates S3 bucket using the `S3_SOURCE_BUCKET` environment variable
   - Uploads 9 Bose headphone manuals and support documents
 
-  ### Smart Caching
-
-  The data preparation step is intelligent:
-  - **Skips download** if data already exists and is populated
-  - **Verifies data integrity** by checking document/file counts
-  - **Reports status** of existing vs. newly created resources
-
-  ### Error Handling
-
-  If data preparation fails:
-  - Clear error messages indicate the specific issue
-  - Pipeline stops execution to prevent running with incomplete data
-  - Common issues: network connectivity, authentication, or storage permissions
-
-  This automated setup ensures anyone can run the pipeline immediately after configuring their credentials, without manual data preparation steps.
   """
 
 S3_SOURCE_CONNECTOR: |
