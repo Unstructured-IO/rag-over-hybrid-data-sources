@@ -1,0 +1,18 @@
+# Image Blocks Configuration
+# Maps image handles to image files in the images/ folder
+# 
+# Usage: Add # [[IMG:HANDLE_NAME]] to your pipeline file
+# Then add HANDLE_NAME: images/filename.ext to this file
+
+# Elasticsearch Index Images
+SALES_RECORDS_CONSOLIDATED_INDEX: images/sales-records-consolidated.png
+PRODUCT_MANUAL_EXAMPLE: images/product-manual-example.png
+CUSTOMER_SUPPORT_INDEX: images/customer-support.png
+
+# Example entries (uncomment and modify as needed):
+# ARCHITECTURE_DIAGRAM: images/architecture-diagram.png
+# WORKFLOW_FLOWCHART: images/workflow-flowchart.png
+# DATA_FLOW: images/data-flow.png
+# RAG_DEMO_SCREENSHOT: images/rag-demo-screenshot.png
+# SYSTEM_OVERVIEW: images/system-overview.png
+# PROCESSING_PIPELINE: images/processing-pipeline.png

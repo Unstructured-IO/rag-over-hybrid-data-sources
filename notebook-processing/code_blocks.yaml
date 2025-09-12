@@ -10,3 +10,4 @@ PREPROCESSING: code-scripts/preprocessing.py
 VERIFICATION: code-scripts/verification.py
 MAIN: code-scripts/main.py
 EXECUTION_RUNNER: code-scripts/execution_runner.py 
+RAG_DEMO: code-scripts/rag_demo.py 

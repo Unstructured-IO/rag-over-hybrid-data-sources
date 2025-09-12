@@ -482,7 +482,37 @@ EXECUTION_FLOW: |
   2. **Job Monitoring**: Waits for both workflows to complete successfully
   3. **Result Verification**: Analyzes the unified knowledge base
   4. **RAG Demonstration**: Shows actual queries across both data sources
+  """
 
+RAG_DEMO_SETUP: |
+  """
+  ## RAG Query Demonstration
+
+  Now that your hybrid knowledge base is ready, let's demonstrate how to query it using RAG (Retrieval-Augmented Generation).
+
+  ### OpenAI API Key Required
+
+  For the RAG demonstration, you'll need an OpenAI API key to power the language model that generates answers based on your retrieved documents.
+
+  **Get your OpenAI API key:**
+  1. Visit https://platform.openai.com/api-keys
+  2. Sign in or create an account
+  3. Generate a new API key
+  4. Paste it in the configuration cell below
+
+  ### What This Demonstrates
+
+  - **Cross-source querying**: Ask questions that require information from both S3 documents and Elasticsearch records
+  - **Source attribution**: See exactly which documents contributed to each answer
+  - **Semantic understanding**: Experience how vector search finds relevant content based on meaning, not just keywords
+  """
+
+
+RAG_DEMO_CONFIG: |
+  """
+  ### RAG Configuration
+
+  **Instructions**: Paste your OpenAI API key below to enable RAG demonstrations:
   """
 
 CONCLUSION: |
@@ -504,6 +534,7 @@ CONCLUSION: |
   - Parallel workflow design for scalability and reliability
   - Vector embeddings for semantic similarity search
   - Source attribution in mixed-data query results
+  - NER-enhanced query understanding and response generation
 
   ### Next Steps
 
@@ -521,4 +552,25 @@ CONCLUSION: |
   - Scale up processing workflows for production data volumes
   - Implement monitoring and alerting for job status
   - Add backup and disaster recovery for your knowledge base
+  """
+
+PRODUCT_MANUAL_EXAMPLE_CONTEXT: |
+  """
+  ### Example Product Manual Content
+  
+  The following image shows a sample page from one of the product manuals stored in your S3 bucket. This demonstrates the type of unstructured content that will be processed and made searchable through our RAG system.
+  """
+
+SALES_RECORDS_CONSOLIDATED_CONTEXT: |
+  """
+  ### Sales Records Data Structure
+  
+  The image below shows the structure of the consolidated sales records in your Elasticsearch index. This data represents customer transactions and will be processed alongside the product manuals to create a unified knowledge base.
+  """
+
+CUSTOMER_SUPPORT_OUTPUT_CONTEXT: |
+  """
+  ### Unified Knowledge Base Results
+  
+  After processing both data sources, the pipeline creates a unified `customer-support` index containing processed documents from both S3 PDFs and Elasticsearch sales records. The image below shows the structure of this consolidated knowledge base, ready for RAG queries.
   """
