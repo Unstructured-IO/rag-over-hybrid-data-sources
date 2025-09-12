@@ -1,0 +1,12 @@
+# Code blocks for enriching hybrid_rag_pipeline_modular.py
+# Maps CODE handles to their corresponding script files in code-scripts/
+
+DEPENDENCIES: code-scripts/dependencies.py
+DATA_PREPARATION: code-scripts/data_preparation.py
+CONNECTORS: code-scripts/connectors.py
+WORKFLOWS: code-scripts/workflows.py
+EXECUTION: code-scripts/execution.py
+PREPROCESSING: code-scripts/preprocessing.py
+VERIFICATION: code-scripts/verification.py
+MAIN: code-scripts/main.py
+EXECUTION_RUNNER: code-scripts/execution_runner.py 

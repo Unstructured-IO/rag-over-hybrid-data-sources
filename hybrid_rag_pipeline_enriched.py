@@ -1,18 +1,35 @@
 #!/usr/bin/env python3
 # %% [markdown]
-# # Hybrid RAG Pipeline: Multi-Source Data Processing with Unstructured API
+# # Hybrid RAG Pipeline: Unifying Enterprise Data Sources
 # 
-# This notebook demonstrates processing data from multiple sources (S3 PDFs and Elasticsearch records) 
-# using the Unstructured Workflow API and writing results to a unified destination index.
+# ## The Enterprise Data Challenge
+# 
+# Imagine you're a customer support agent trying to help a customer with a complex product issue. You need information from:
+# - **Product manuals** stored as PDFs in cloud storage
+# - **Customer purchase history** in your sales database
+# - **Previous support interactions** scattered across different systems
+# 
+# Each piece lives in a different format, in a different system, with different access methods. This is the reality for most enterprises today.
+# 
+# ## Why Data Unification Matters
+# 
+# **The Problem**: Enterprise data rarely lives in one place or format. Critical information is fragmented across:
+# - Unstructured documents (PDFs, manuals, reports) in cloud storage
+# - Structured records (sales data, customer info) in databases
+# - Different formats requiring different processing approaches
+# 
+# **The Challenge**: Traditional RAG systems work well with homogeneous data but struggle when you need to query across diverse data sources simultaneously.
+# 
+# **The Solution**: This notebook demonstrates how to build a hybrid RAG system that processes multiple data types in parallel and creates a unified, searchable knowledge base.
 # 
 # ## Architecture Overview
 # 
-# Two parallel workflows process different data sources and write to the same Elasticsearch index:
+# Our solution processes two different data sources simultaneously:
 # 
 # ```
 # ┌─────────────────┐                           ┌─────────────────────────┐
 # │   S3 PDFs       │──── WORKFLOW 1 ──────────▶│                         │
-# │ (Documents)     │                           │    Unstructured API     │
+# │ (Product Docs)  │                           │    Unstructured API     │
 # └─────────────────┘                           │                         │
 #                                               │  Partition → Chunk →    │
 # ┌─────────────────┐                           │  Embed → NER → Store    │
@@ -26,169 +43,73 @@
 #                                               └─────────────────────────┘
 # ```
 # 
-# ## Processing Pipeline
+# ## How Unstructured Solves This
 # 
-# Each workflow applies identical processing steps to ensure consistent output format:
+# The Unstructured API provides a unified processing pipeline that:
+# 1. **Handles diverse formats** - PDFs, databases, structured data
+# 2. **Applies consistent processing** - Same chunking, embedding, and enrichment
+# 3. **Creates unified output** - All data lands in the same searchable format
+# 4. **Scales automatically** - Cloud-based processing handles large datasets
 # 
-# 1. **Partition**: VLM-based document parsing using OpenAI GPT-4o
-# 2. **Chunk**: Title-based chunking with 1,500 character trigger, 2,048 character maximum
-# 3. **Embed**: Vector embeddings using OpenAI text-embedding-3-small model
-# 4. **NER**: Named entity recognition to extract structured metadata
-# 5. **Store**: Write processed results to Elasticsearch destination index
-# 
-# Both workflows write to the same `customer-support` index, creating a unified knowledge base 
-# from heterogeneous data sources.
-# %%
+# This notebook walks through building such a system step by step.
 
 # %% [markdown]
-# ## Unstructured API Key Setup
-# ### Sign up, sign in, and get your API key
+# ## Getting Started: Unstructured API Access
 # 
-# If you do not already have an Unstructured account, sign up for free. After you sign up, you are automatically signed in to your new Unstructured Starter account, at https://platform.unstructured.io.
+# To follow along with this tutorial, you'll need an Unstructured API key.
 # 
-# To sign up for a Team or Enterprise account instead, contact Unstructured Sales, or learn more: https://docs.unstructured.io/ui/account/workspaces#create-an-api-key-for-a-workspace 
+# ### Sign Up and Get Your API Key
 # 
-# If you have an Unstructured Starter or Team account and are not already signed in, sign in to your account at https://platform.unstructured.io.
+# 1. **Sign up** for a free account at https://platform.unstructured.io
+# 2. **Navigate to API Keys** in the sidebar after signing in
+# 3. **Generate API Key** and copy it to your clipboard
+# 4. **Save the key** - you'll need it for the configuration step below
 # 
-# For an Enterprise account, see your Unstructured account administrator for instructions, or email Unstructured Support at support@unstructured.io.
+# For Team or Enterprise accounts, make sure you've selected the correct organizational workspace before creating your API key.
 # 
-# Get your Unstructured API key:
-# 
-# a. After you sign in to your Unstructured Starter account, click API Keys on the sidebar.
-# 
-# For a Team or Enterprise account, before you click API Keys, make sure you have selected the organizational workspace you want to create an API key for. Each API key works with one and only one organizational workspace. Learn more.
-# 
-# b. Click Generate API Key.
-# 
-# c. Follow the on-screen instructions to finish generating the key.
-# 
-# d. Click the Copy icon next to your new key to add the key to your system's clipboard. If you lose this key, simply return and click the Copy icon again.
-# %%
+# **Need help?** Contact Unstructured Support at support@unstructured.io
 
 # %% [markdown]
-# ## AWS S3 Configuration
+# ## Configuration: Connecting Your Data Sources
 # 
-# This pipeline requires an S3 bucket as a source for documents (PDFs, images, etc.) that will be processed.
+# This pipeline requires access to three services. Choose your preferred configuration method:
 # 
-# ### AWS Setup Requirements
+# ### Method 1: Environment File (Recommended)
 # 
-# You need AWS credentials and an S3 bucket configured. The [AWS S3 source connector documentation](https://docs.unstructured.io/api-reference/workflow/sources/s3) provides general instructions for:
+# Create a `.env` file in your project root:
 # 
-# - Setting up AWS access key ID and secret access key
-# - Configuring IAM policies for S3 bucket access
-# - Creating and configuring S3 buckets
-# - Setting up proper bucket permissions
+# ```bash
+# # Unstructured API
+# UNSTRUCTURED_API_KEY=your-actual-api-key
 # 
-# ### Required S3 Bucket for This Pipeline
-# 
-# You'll need to create an S3 bucket (or use an existing one) that contains the documents you want to process.
-# 
-# ### Required Environment Variables
-# 
-# Add these AWS configuration values to your `.env` file:
-# ```
-# AWS_ACCESS_KEY_ID=your-aws-access-key-id
-# AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key
+# # AWS S3 (for document storage)
+# AWS_ACCESS_KEY_ID=your-aws-access-key
+# AWS_SECRET_ACCESS_KEY=your-aws-secret-key
 # AWS_REGION=us-east-1
-# S3_SOURCE_BUCKET=your-source-bucket-name
-# ```
+# S3_SOURCE_BUCKET=your-documents-bucket
 # 
-# ### S3 URL Format Support
-# 
-# The pipeline accepts various S3 URL formats:
-# - Raw bucket name: `my-documents-bucket`
-# - Bucket with prefix: `my-documents-bucket/pdfs`
-# - S3 protocol URL: `s3://my-documents-bucket/pdfs/`
-# - HTTPS URL: `https://my-documents-bucket.s3.us-east-1.amazonaws.com/pdfs/`
-# 
-# All formats are automatically normalized to the s3:// format required by the Unstructured API.
-# %%
-
-# %% [markdown]
-# ## Elasticsearch Configuration
-# 
-# This pipeline uses Elasticsearch for both source data and destination storage of processed results.
-# 
-# ### Elasticsearch Setup Requirements
-# 
-# You need an Elasticsearch cluster with proper authentication configured. The [Elasticsearch source connector documentation](https://docs.unstructured.io/api-reference/workflow/sources/elasticsearch) and [Elasticsearch destination connector documentation](https://docs.unstructured.io/api-reference/workflow/destinations/elasticsearch) provide general instructions for:
-# 
-# - Setting up your Elasticsearch cluster
-# - Configuring authentication and API keys
-# - Creating and managing Elasticsearch indices
-# - Setting up proper permissions and access control
-# 
-# ### Required Indices for This Pipeline
-# 
-# This notebook expects specific index names:
-# 
-# **Source Index**: `sales-records-consolidated`
-# - Must exist and contain data before running the pipeline
-# - Should contain your source sales records data
-# - You need to create and populate this index with your data
-# 
-# **Destination Index**: `customer-support`
-# - Created automatically by the pipeline with standardized mapping
-# - Will contain the processed results from both S3 and Elasticsearch sources
-# - Any existing index with this name will be deleted and recreated
-# 
-# ### Required Environment Variables
-# 
-# Add these Elasticsearch configuration values to your `.env` file:
-# ```
-# ELASTICSEARCH_HOST=https://your-elasticsearch-host:9200
+# # Elasticsearch (for structured data and results)
+# ELASTICSEARCH_HOST=https://your-cluster.es.io:9200
 # ELASTICSEARCH_API_KEY=your-elasticsearch-api-key
 # ELASTICSEARCH_INDEX=sales-records-consolidated
 # ```
 # 
-# ### API Key Role Configuration
+# ### Method 2: Direct Configuration
 # 
-# For this pipeline to work properly, your Elasticsearch API key needs the following role configuration with full access to the required indices:
+# Alternatively, you can paste your credentials directly in the code by:
+# 1. Finding the `# Method 2: Direct assignment` sections below
+# 2. Uncommenting those lines and replacing placeholder values
+# 3. Commenting out the corresponding `os.getenv()` lines
 # 
-# ```json
-# {
-#   "sales-records-full-access": {
-#     "cluster": [],
-#     "indices": [
-#       {
-#         "names": [
-#           "sales-records",
-#           "sales-records-consolidated",
-#           "customer-support"
-#         ],
-#         "privileges": [
-#           "create_index",
-#           "delete_index",
-#           "manage",
-#           "write",
-#           "read",
-#           "view_index_metadata",
-#           "monitor"
-#         ],
-#         "allow_restricted_indices": false
-#       }
-#     ],
-#     "applications": [],
-#     "run_as": [],
-#     "metadata": {},
-#     "transient_metadata": {
-#       "enabled": true
-#     }
-#   }
-# }
-# ```
+# ### What Each Service Does
 # 
-# This role provides the necessary permissions to:
-# - Create and delete the `customer-support` index
-# - Read from the `sales-records-consolidated` source index
-# - Write processed results to the destination index
-# - Monitor index status and metadata
+# - **Unstructured API**: Processes and transforms your documents
+# - **AWS S3**: Stores unstructured documents (PDFs, manuals)
+# - **Elasticsearch**: Holds structured data and stores final results
 # 
-# ### Pipeline Validation
-# 
-# The pipeline validates that the source index (`sales-records-consolidated`) exists and contains data before proceeding with workflow execution. If the index is missing or empty, the pipeline will exit with an error.
-# %%
+# The script validates all credentials at startup and provides clear error messages for any missing values.
 
+# %%
 import sys, subprocess
 
 def ensure_notebook_deps() -> None:
@@ -210,7 +131,6 @@ def ensure_notebook_deps() -> None:
 ensure_notebook_deps()
 
 import os
-import sys
 import time
 import json
 import zipfile
@@ -233,67 +153,15 @@ from unstructured_client.models.operations import (
 )
 from unstructured_client.models.shared import (
     CreateSourceConnector,
-    SourceConnectorType,
     CreateDestinationConnector,
     WorkflowNode,
     WorkflowType,
     CreateWorkflow
 )
-from elasticsearch import Elasticsearch
-
-# Install notebook dependencies (safe no-op if present)
-ensure_notebook_deps()
 
 # Load environment variables
 load_dotenv()
 
-# %% [markdown]
-# ## Environment Configuration
-# 
-# The pipeline requires authentication and endpoint configuration. Choose **ONE** of these two methods:
-# 
-# ### Method 1: Using a .env File (RECOMMENDED)
-# 
-# Create a `.env` file in the project root with your actual values:
-# ```
-# AWS_ACCESS_KEY_ID=your-actual-access-key-id
-# AWS_SECRET_ACCESS_KEY=your-actual-secret-access-key
-# AWS_REGION=us-east-1
-# S3_SOURCE_BUCKET=your-source-bucket-name
-# UNSTRUCTURED_API_KEY=your-actual-unstructured-api-key
-# ELASTICSEARCH_HOST=https://your-elasticsearch-host:9200
-# ELASTICSEARCH_API_KEY=your-actual-elasticsearch-api-key
-# ELASTICSEARCH_INDEX=sales-records-consolidated
-# ```
-# 
-# ### Method 2: Direct Assignment in Notebook
-# 
-# If you prefer to paste credentials directly in the notebook:
-# 
-# 1. **Find the section** marked with `# Method 2: Direct assignment` in the code cell below
-# 2. **Uncomment the lines** by removing the `#` at the beginning
-# 3. **Replace** `PASTE_YOUR_VALUE_HERE` with your actual credentials
-# 4. **Comment out** the corresponding `os.getenv()` lines above each section
-# 
-# **Look for these clear markers in the code:**
-# - `# AWS_ACCESS_KEY_ID = "PASTE_YOUR_AWS_ACCESS_KEY_ID_HERE"`
-# - `# UNSTRUCTURED_API_KEY = "PASTE_YOUR_UNSTRUCTURED_API_KEY_HERE"`
-# - `# ELASTICSEARCH_HOST = "PASTE_YOUR_ELASTICSEARCH_HOST_HERE"`
-# 
-# ### Required Variables
-# - **AWS**: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`
-# - **S3**: `S3_SOURCE_BUCKET` (accepts bucket name, s3:// URL, or https:// URL)
-# - **Unstructured API**: `UNSTRUCTURED_API_KEY`, `UNSTRUCTURED_API_URL`
-# - **Elasticsearch**: `ELASTICSEARCH_HOST`, `ELASTICSEARCH_API_KEY`, `ELASTICSEARCH_INDEX`
-# 
-# ### Configuration Validation
-# The script validates all required variables at startup and exits if any are missing 
-# or contain placeholder values.
-# 
-# ### Dependency Management
-# The `ensure_notebook_deps()` function automatically installs required Python packages:
-# jupytext, python-dotenv, unstructured-client, elasticsearch, boto3, and PyYAML.
-# %%
 # Configuration
 SKIPPED = "SKIPPED"
 
@@ -364,35 +232,121 @@ if missing_vars:
     print("Please update your .env file with the required values.")
     raise ValueError(f"Missing required configuration values: {missing_vars}")
 
-print("✅ Configuration loaded successfully")
-
-# Unstructured client will be initialized using context managers in each function
+print("✅ Configuration loaded successfully") 
 
 # %% [markdown]
-# ## Data Source Preparation
+# ## AWS S3: Document Storage Setup
 # 
-# Before running the workflows, this section automatically downloads and sets up the required source data from the GitHub repository.
+# Your unstructured documents (PDFs, manuals, reports) need to be accessible via S3.
 # 
-# ### Automatic Data Setup
+# ### What You Need
 # 
-# The pipeline automatically handles data preparation by:
+# **An S3 bucket** containing the documents you want to process. This could be:
+# - Product manuals and documentation
+# - Technical specifications
+# - Support guides and troubleshooting docs
+# - Any PDF documents relevant to customer support
 # 
-# 1. **Downloading source data** from GitHub repository zip files
-# 2. **Setting up Elasticsearch index** with synthetic sales records
-# 3. **Creating and populating S3 bucket** with PDF documents
+# ### AWS Requirements
 # 
-# ### Data Sources
+# - **AWS Account** with S3 access
+# - **IAM User** with S3 read permissions for your bucket
+# - **Access Keys** (Access Key ID and Secret Access Key)
+
+# %% [markdown]
+# ## Elasticsearch: Structured Data and Results Storage
 # 
-# **Elasticsearch Sales Data:**
-# - Downloads from: `https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/sales_records_consolidated.zip`
-# - Creates the `sales-records-consolidated` index
-# - Loads 100 synthetic sales records with proper mapping
+# Elasticsearch serves dual purposes in our pipeline:
+# 1. **Source**: Stores your structured business data (sales records, customer info)
+# 2. **Destination**: Receives the unified, processed results
 # 
-# **S3 PDF Documents:**
-# - Downloads from: `https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/s3_pdfs.zip`
-# - Creates S3 bucket using the `S3_SOURCE_BUCKET` environment variable
-# - Uploads 9 Bose headphone manuals and support documents
+# ### What You Need
+# 
+# **Elasticsearch cluster** with API key authentication. This could be:
+# - Elastic Cloud (managed service)
+# - Self-hosted Elasticsearch
+# - AWS OpenSearch Service
+# 
+# ### Required Indices
+# 
+# **Source Index**: `sales-records-consolidated`
+# - Contains your business data (sales records, customer interactions, etc.)
+# - Must exist with data before running the pipeline
+# - Will be read and processed by the Unstructured API
+# 
+# **Destination Index**: `customer-support`
+# - Created automatically by the pipeline
+# - Receives processed results from both S3 and Elasticsearch sources
+# - Your unified knowledge base for RAG queries
+# 
+# ### API Key Permissions
+# 
+# Your Elasticsearch API key needs these permissions:
+# 
+# ```json
+# {
+#   "sales-records-full-access": {
+#     "cluster": [],
+#     "indices": [
+#       {
+#         "names": [
+#           "sales-records",
+#           "sales-records-consolidated",
+#           "customer-support"
+#         ],
+#         "privileges": [
+#           "create_index",
+#           "delete_index",
+#           "manage",
+#           "write",
+#           "read",
+#           "view_index_metadata",
+#           "monitor"
+#         ],
+#         "allow_restricted_indices": false
+#       }
+#     ],
+#     "applications": [],
+#     "run_as": [],
+#     "metadata": {},
+#     "transient_metadata": {
+#       "enabled": true
+#     }
+#   }
+# }
+# ```
+# 
+# **Don't have Elasticsearch data yet?** The pipeline includes automatic data setup that creates sample sales records for demonstration.
+
+# %% [markdown]
+# ## Data Preparation: Setting Up Demo Sources
+# 
+# For this demonstration, we'll automatically set up realistic sample data that mimics a real enterprise scenario.
+# 
+# ### What Gets Created
+# 
+# **Elasticsearch Sales Data**
+# - 100 synthetic sales records with customer information
+# - Consolidated format optimized for vector search
+# - Includes customer names, products, purchase details, and interactions
+# 
+# **S3 Product Documentation**
+# - 9 real product manuals downloaded from manufacturer websites
+# - Bose headphone documentation including setup guides and troubleshooting
+# - Stored in your specified S3 bucket for processing
+# 
+# ### Why This Matters
+# 
+# This setup mimics real enterprise scenarios where:
+# - **Structured data** (sales records) lives in databases
+# - **Unstructured documents** (manuals) are stored in cloud storage
+# - Both need to be searchable together for effective customer support
+# 
+# The automatic setup ensures you can run this pipeline immediately without manual data preparation.
+
 # %%
+# Data preparation functions - requires global variables to be imported
+# Note: All imports and global variables are defined in dependencies.py
 
 def download_file(url: str, local_path: str) -> bool:
     """Download a file from URL to local path."""
@@ -494,6 +448,7 @@ def setup_elasticsearch_data():
             os.unlink(tmp_file.name)
         except:
             pass
+
 def setup_s3_data():
     """Download and load PDF files into S3 bucket."""
     print("🔧 Setting up S3 PDF data...")
@@ -648,35 +603,80 @@ def prepare_data_sources():
     print()
     print("✅ All data sources prepared successfully!")
     print("=" * 50)
-    return True
+    return True 
 
 # %% [markdown]
-# ## S3 Source Connector
+# ## Connecting to Document Storage
 # 
-# Creates a source connector to read documents from an S3 bucket containing customer support materials.
+# The S3 source connector reads unstructured documents from cloud storage.
 # 
-# ### Data Source: Amazon Headphone Manuals
-# For this pipeline, the S3 bucket contains manuals and customer support materials downloaded directly from Amazon.com product pages for various headphones. These documents provide rich product information, troubleshooting guides, and user instructions that will be processed into searchable content.
+# ### What It Processes
 # 
-# ### URL Format Handling
-# The connector accepts multiple S3 URL formats and normalizes them to s3:// format:
-# - Raw bucket name: `example-data-bucket`
-# - Bucket with prefix: `example-data-bucket/documents`
-# - S3 protocol URL: `s3://example-data-bucket/documents/`
-# - HTTPS URL: `https://example-data-bucket.s3.us-east-1.amazonaws.com/documents/`
+# In our demo: Product manuals and support documentation downloaded from manufacturer websites. These represent the type of unstructured content that customer support teams need instant access to.
 # 
-# ### Configuration Parameters
-# - **remote_url**: Normalized s3:// URL for the source location
-# - **recursive**: Set to `True` to process files in subdirectories
-# - **key/secret**: AWS credentials for S3 access
-# - **type**: Set to "s3" for S3 source connector
+# ### How It Works
 # 
-# The function returns a source connector ID used to create the workflow.
-# %%
+# The connector:
+# 1. **Connects** to your S3 bucket using AWS credentials
+# 2. **Scans recursively** through all subdirectories
+# 3. **Identifies** supported document types (PDFs, images, text files)
+# 4. **Queues** documents for processing by the Unstructured API
+# 
+# ### Configuration
+# 
+# - **Flexible URL handling**: Accepts various S3 URL formats
+# - **Recursive processing**: Handles nested folder structures
+# - **Secure authentication**: Uses your AWS access keys
 
+# %% [markdown]
+# ## Connecting to Business Data
+# 
+# The Elasticsearch source connector reads structured business data from your existing systems.
+# 
+# ### What It Processes
+# 
+# In our demo: Consolidated sales records containing customer information, purchase history, and interaction data. This represents the structured data that complements your documents.
+# 
+# ### Why Consolidated Data Works Better
+# 
+# Traditional databases store information in separate fields (customer_name, product_id, purchase_date). For RAG applications, we consolidate this into narrative text that provides full context in each search result.
+# 
+# Example transformation:
+# ```
+# Before: {customer: "John Doe", product: "BH-001", date: "2024-01-15"}
+# After: "Customer John Doe purchased product BH-001 on January 15, 2024..."
+# ```
+# 
+# ### Configuration
+# 
+# - **Direct index access**: Reads from your specified Elasticsearch index
+# - **Authenticated connection**: Uses your Elasticsearch API key
+# - **Flexible querying**: Processes all documents in the source index
+
+# %% [markdown]
+# ## Creating the Unified Knowledge Base
+# 
+# Both processing workflows write their results to a single destination: the `customer-support` index.
+# 
+# ### Unified Destination Strategy
+# 
+# This approach creates a single searchable index containing:
+# - **Document content** from S3 (manuals, guides, specifications)
+# - **Business data** from Elasticsearch (customer records, sales data)
+# - **Consistent format** with identical processing applied to both sources
+# 
+# ### Why This Matters
+# 
+# Customer support agents can now search once and get results from all data sources:
+# - "How do I reset the BH-900 headphones?" → Gets manual instructions
+# - "What did John Smith purchase last month?" → Gets sales record data
+# - "BH-900 troubleshooting for premium customers" → Gets both manual sections AND customer data
+# 
+# The unified index makes complex, cross-source queries possible.
+
+# %%
 def create_s3_source_connector():
-    """Create an S3 source connector for PDF documents.
-    """
+    """Create an S3 source connector for PDF documents."""
     try:
         if not S3_SOURCE_BUCKET:
             raise ValueError("S3_SOURCE_BUCKET is required (bucket name, s3:// URL, or https:// URL)")
@@ -711,41 +711,18 @@ def create_s3_source_connector():
                 )
             )
         
-        
         source_id = response.source_connector_information.id
-        print(f":white_check_mark: Created S3 PDF source connector: {source_id} -> {s3_style}")
+        print(f"✅ Created S3 PDF source connector: {source_id} -> {s3_style}")
         return source_id
         
     except Exception as e:
-        print(f":x: Error creating S3 source connector: {e}")
+        print(f"❌ Error creating S3 source connector: {e}")
         return None
-
-# %% [markdown]
-# ## Elasticsearch Source Connector
-# 
-# Creates a source connector to read data from an existing Elasticsearch index containing sales records.
-# 
-# ### Data Source: Synthetic Consolidated Sales Data
-# For this pipeline, the source index (`sales-records-consolidated`) contains synthetic sales data where multiple fields have been consolidated into a single long-form text field. This consolidation approach provides maximum context for vector search operations, allowing each sales record to be comprehensively searchable rather than having information fragmented across separate fields.
-# 
-# ### Data Source Configuration
-# - **hosts**: List containing the Elasticsearch endpoint URL
-# - **es_api_key**: API key for Elasticsearch authentication
-# - **index_name**: Source index name (defaults to "sales-records-consolidated")
-# - **type**: Set to "elasticsearch" for Elasticsearch source connector
-# 
-# ### Connector Naming
-# Uses timestamp-based naming (`elasticsearch_sales_source_{timestamp}`) to ensure 
-# unique connector names across multiple runs.
-# 
-# The function returns a source connector ID used to create the workflow.
-# %%
 
 def create_elasticsearch_source_connector():
     """Create an Elasticsearch source connector for sales data."""
     try:
-
-        with UnstructuredClient(api_key_auth=os.getenv("UNSTRUCTURED_API_KEY")) as client:
+        with UnstructuredClient(api_key_auth=UNSTRUCTURED_API_KEY) as client:
             response = client.sources.create_source(
                 request=CreateSourceRequest(
                     create_source_connector=CreateSourceConnector(
@@ -761,41 +738,17 @@ def create_elasticsearch_source_connector():
             )
         
         source_id = response.source_connector_information.id
-        print(f":white_check_mark: Created Elasticsearch sales source connector: {source_id}")
+        print(f"✅ Created Elasticsearch sales source connector: {source_id}")
         return source_id
     
     except Exception as e:
-        print(f":x: Error creating Elasticsearch source connector: {e}")
+        print(f"❌ Error creating Elasticsearch source connector: {e}")
         return None
-
-# %% [markdown]
-# ## Elasticsearch Destination Connector
-# 
-# Creates a destination connector where both workflows write their processed results.
-# 
-# ### Unified Destination Strategy
-# Both the S3 PDF workflow and Elasticsearch sales workflow write to the same destination index:
-# - Target index: `customer-support`
-# - Same Elasticsearch cluster as the source data
-# - Identical processing pipeline ensures consistent data format
-# 
-# ### Configuration Parameters
-# - **hosts**: List containing the Elasticsearch endpoint URL
-# - **es_api_key**: API key for Elasticsearch write access
-# - **index_name**: Fixed as "customer-support" for the unified destination
-# - **type**: Set to "elasticsearch" for Elasticsearch destination connector
-# 
-# ### Connector Naming
-# Uses timestamp-based naming (`elasticsearch_customer_support_destination_{timestamp}`) 
-# to ensure unique connector names.
-# 
-# The function returns a destination connector ID used by both workflows.
-# %%
 
 def create_elasticsearch_destination_connector():
     """Create an Elasticsearch destination connector for processed results."""
     try:
-        with UnstructuredClient(api_key_auth=os.getenv("UNSTRUCTURED_API_KEY")) as client:
+        with UnstructuredClient(api_key_auth=UNSTRUCTURED_API_KEY) as client:
             response = client.destinations.create_destination(
                 request=CreateDestinationRequest(
                     create_destination_connector=CreateDestinationConnector(
@@ -810,47 +763,49 @@ def create_elasticsearch_destination_connector():
                 )
             )
 
-            print(response.destination_connector_information)
-
         destination_id = response.destination_connector_information.id
-        print(f":white_check_mark: Created Elasticsearch destination connector: {destination_id}")
+        print(f"✅ Created Elasticsearch destination connector: {destination_id}")
         return destination_id
         
     except Exception as e:
-        print(f":x: Error creating Elasticsearch destination connector: {e}")
+        print(f"❌ Error creating Elasticsearch destination connector: {e}")
         return None
 
 # %% [markdown]
-# ## Processing Node Definitions
+# ## Processing Pipeline: Making Data Searchable
 # 
-# Defines four processing nodes that both workflows use to ensure consistent output format.
+# Both workflows use identical processing steps to ensure consistent output format.
 # 
-# ### VLM Partitioner Node
-# - **Type**: `partition` with `vlm` subtype
-# - **Provider**: OpenAI
-# - **Model**: GPT-4o
-# - **Function**: Converts documents into structured JSON using vision-language model capabilities
+# ### The Four Processing Stages
 # 
-# ### Chunking Node
-# - **Type**: `chunk` with `chunk_by_title` subtype
-# - **Strategy**: Title-based chunking for semantic coherence
-# - **Parameters**: 1,500 character trigger, 2,048 character maximum, 0 overlap
-# - **Function**: Splits documents into retrieval-optimized chunks
+# **1. VLM Partitioning** (GPT-4o)
+# - Converts documents into structured JSON elements
+# - Handles complex layouts, tables, and visual content
+# - Preserves semantic relationships between content sections
 # 
-# ### Embedding Node
-# - **Type**: `embed` with `openai` subtype
-# - **Model**: text-embedding-3-small
-# - **Output**: 1,536-dimensional vectors
-# - **Function**: Converts text chunks to dense vector representations
+# **2. Smart Chunking** (Title-based)
+# - Creates 1,500-character chunks with 2,048 maximum
+# - Maintains semantic coherence by respecting document structure
+# - Ensures each chunk contains complete, contextual information
 # 
-# ### NER Enrichment Node
-# - **Type**: `prompter` with `openai_ner` subtype
-# - **Function**: Extracts named entities and adds structured metadata
-# - **Configuration**: Uses Unstructured's default NER prompt
+# **3. Vector Embedding** (OpenAI text-embedding-3-small)
+# - Converts text chunks into 1,536-dimensional vectors
+# - Enables semantic similarity search across all content
+# - Powers the "understanding" behind RAG queries
 # 
-# All nodes are shared between workflows to ensure processing consistency.
-# %%
+# **4. NER Enrichment** (Named Entity Recognition)
+# - Extracts people, places, organizations, products
+# - Adds structured metadata to improve search precision
+# - Enables entity-based filtering and routing
+# 
+# ### Why Identical Processing Matters
+# 
+# Using the same pipeline for both data sources ensures:
+# - **Consistent search behavior** across document types
+# - **Comparable embedding spaces** for cross-source similarity
+# - **Unified metadata structure** for filtering and analysis
 
+# %%
 def create_workflow_nodes():
     """Create shared processing nodes for workflows."""
     # VLM Partitioner Node
@@ -898,31 +853,6 @@ def create_workflow_nodes():
     
     return vlm_partition_node, chunk_node, embedder_node, ner_enrichment_node
 
-# %% [markdown]
-# ## Parallel Workflow Creation
-# 
-# Creates two independent workflows that process different data sources and write to the same destination.
-# 
-# ### S3 PDF Workflow
-# - **Source**: S3 source connector (PDF documents)
-# - **Processing**: VLM partition → Chunk → Embed → NER
-# - **Destination**: customer-support Elasticsearch index
-# - **Naming**: `S3-PDFs-Parallel-Workflow_{timestamp}`
-# 
-# ### Elasticsearch Sales Workflow
-# - **Source**: Elasticsearch source connector (sales records)
-# - **Processing**: Same four processing nodes as PDF workflow
-# - **Destination**: Same customer-support Elasticsearch index
-# - **Naming**: `Elasticsearch-Sales-Parallel-Workflow_{timestamp}`
-# 
-# ### Workflow Configuration
-# - **Type**: `CUSTOM` workflow type for custom node configuration
-# - **Node Sequence**: All workflows use identical node ordering
-# - **Parallel Execution**: Workflows run independently and can be executed simultaneously
-# 
-# The function returns workflow IDs for both created workflows.
-# %%
-
 def create_parallel_workflows(s3_source_id, elasticsearch_source_id, destination_id):
     """Create separate workflows for S3 PDFs and Elasticsearch data that run in parallel."""
     try:
@@ -952,7 +882,7 @@ def create_parallel_workflows(s3_source_id, elasticsearch_source_id, destination
                 )
             
             s3_workflow_id = s3_response.workflow_information.id
-            print(f":white_check_mark: Created S3 PDF workflow: {s3_workflow_id}")
+            print(f"✅ Created S3 PDF workflow: {s3_workflow_id}")
         
         # Create workflow for Elasticsearch sales data
         with UnstructuredClient(api_key_auth=UNSTRUCTURED_API_KEY) as client:
@@ -976,33 +906,37 @@ def create_parallel_workflows(s3_source_id, elasticsearch_source_id, destination
             )
         
         es_workflow_id = es_response.workflow_information.id
-        print(f":white_check_mark: Created Elasticsearch sales workflow: {es_workflow_id}")
+        print(f"✅ Created Elasticsearch sales workflow: {es_workflow_id}")
         
         return s3_workflow_id, es_workflow_id
         
     except Exception as e:
-        print(f":x: Error creating parallel workflows: {e}")
+        print(f"❌ Error creating parallel workflows: {e}")
         return None, None
 
 # %% [markdown]
-# ## Workflow Execution
+# ## Starting the Processing Jobs
 # 
-# Initiates workflow execution and returns job tracking information.
+# Workflow execution is asynchronous - we start the jobs and monitor their progress.
 # 
 # ### Execution Process
-# 1. Sends workflow run request to Unstructured API using workflow ID
-# 2. Receives job ID for the asynchronous processing task
-# 3. Workflow executes on Unstructured's cloud infrastructure
-# 4. Returns job ID for status monitoring
+# 
+# 1. **Submit** workflow run requests to the Unstructured API
+# 2. **Receive** job IDs for tracking
+# 3. **Monitor** progress through job status polling
+# 4. **Handle** completion or failure states
 # 
 # ### Job Management
-# - Each workflow execution creates a separate job
-# - Jobs run asynchronously and can be monitored independently
-# - Job IDs are used for status polling and result verification
 # 
-# The main pipeline calls this function twice (once per workflow) to start parallel processing.
-# %%
+# Each workflow creates an independent job that:
+# - Runs on Unstructured's cloud infrastructure
+# - Processes data according to the defined pipeline
+# - Writes results directly to the destination index
+# - Reports status and progress through the API
+# 
+# This approach scales automatically and handles large datasets without local resource constraints.
 
+# %%
 def run_workflow(workflow_id, workflow_name):
     """Run a workflow and return job information."""
     try:
@@ -1012,33 +946,12 @@ def run_workflow(workflow_id, workflow_name):
             )
         
         job_id = response.job_information.id
-        print(f":white_check_mark: Started {workflow_name} job: {job_id}")
+        print(f"✅ Started {workflow_name} job: {job_id}")
         return job_id
         
     except Exception as e:
-        print(f":x: Error running {workflow_name} workflow: {e}")
+        print(f"❌ Error running {workflow_name} workflow: {e}")
         return None
-
-# %% [markdown]
-# ## Job Status Monitoring
-# 
-# Provides synchronous job monitoring by polling status until completion.
-# 
-# ### Polling Mechanism
-# - **Interval**: Configurable wait time (default: 30 seconds)
-# - **States**: Handles SCHEDULED, IN_PROGRESS, COMPLETED, FAILED states
-# - **Blocking**: Continuously polls until job reaches terminal state
-# 
-# ### Job Status Flow
-# 1. **SCHEDULED**: Job queued, waiting for processing resources
-# 2. **IN_PROGRESS**: Job actively processing data
-# 3. **COMPLETED**: Job finished successfully
-# 4. **FAILED**: Job encountered an error and stopped
-# 
-# ### Implementation Notes
-# The function blocks execution until job completion, which is used in this pipeline 
-# to ensure both jobs finish before proceeding to result verification.
-# %%
 
 def poll_job_status(job_id, job_name, wait_time=30):
     """Poll job status until completion."""
@@ -1058,51 +971,76 @@ def poll_job_status(job_id, job_name, wait_time=30):
                 print(f"⏳ {job_name} job status: {status}")
                 time.sleep(wait_time)
             elif status == "COMPLETED":
-                print(f"{job_name} job completed successfully!")
+                print(f"✅ {job_name} job completed successfully!")
                 return job
             elif status == "FAILED":
-                print(f"{job_name} job failed!")
+                print(f"❌ {job_name} job failed!")
                 return job
             else:
                 print(f"❓ Unknown {job_name} job status: {status}")
                 return job
                 
         except Exception as e:
-            print(f":x: Error polling {job_name} job status: {e}")
+            print(f"❌ Error polling {job_name} job status: {e}")
             time.sleep(wait_time)
 
 # %% [markdown]
-# ## Elasticsearch Index Management
+# ## Monitoring Processing Progress
 # 
-# Validates source data availability and prepares the destination index.
+# The pipeline provides real-time job monitoring to track processing status.
 # 
-# ### Source Index Validation
-# Checks the `sales-records-consolidated` index:
-# - Verifies index exists in Elasticsearch cluster
-# - Confirms index contains documents (non-zero count)
-# - Exits with error if index is missing or empty
+# ### Status Polling
 # 
-# ### Destination Index Preparation
-# Manages the `customer-support` index:
-# - Deletes existing index if present (clean slate approach)
-# - Creates fresh index with standardized mapping
-# - Configures field types: keyword, date, text with standard analyzer, object
+# Jobs progress through these states:
+# - **SCHEDULED**: Queued and waiting for processing resources
+# - **IN_PROGRESS**: Actively processing your data
+# - **COMPLETED**: Successfully finished
+# - **FAILED**: Encountered an error
 # 
-# ### Index Mapping Configuration
+# ### Monitoring Strategy
+# 
+# The `poll_job_status` function:
+# - Checks status every 30 seconds
+# - Provides progress updates with clear indicators
+# - Blocks execution until jobs complete
+# - Handles errors gracefully with informative messages
+# 
+# This ensures both workflows finish before we verify results.
+
+# %% [markdown]
+# ## Preparing the Elasticsearch Environment
+# 
+# Before processing begins, we validate data sources and prepare the destination.
+# 
+# ### Source Validation
+# 
+# **Critical Check**: Ensures the `sales-records-consolidated` index exists and contains data
+# - Prevents wasted processing on empty sources
+# - Provides clear error messages if data is missing
+# - Validates data count to confirm meaningful content
+# 
+# ### Destination Preparation
+# 
+# **Clean Slate Approach**: Recreates the `customer-support` index fresh for each run
+# - Deletes any existing index to prevent data mixing
+# - Creates new index with optimized mapping for RAG applications
+# - Configures proper field types for text search and metadata
+# 
+# ### Index Mapping
+# 
+# The destination index uses this structure:
 # ```json
 # {
-#   "properties": {
-#     "id": {"type": "keyword"},
-#     "timestamp": {"type": "date"},
-#     "text": {"type": "text", "analyzer": "standard"},
-#     "metadata": {"type": "object"}
-#   }
+#   "id": "keyword",           // Unique document identifier
+#   "timestamp": "date",       // Processing timestamp
+#   "text": "text",           // Searchable content
+#   "metadata": "object"      // Source info and entities
 # }
 # ```
 # 
-# This preprocessing ensures data source availability and destination readiness before workflow execution.
-# %%
+# This preprocessing ensures reliable, predictable results.
 
+# %%
 def run_elasticsearch_preprocessing():
     """Check and manage Elasticsearch indices for the pipeline."""
     print("🔧 Running Elasticsearch preprocessing...")
@@ -1119,7 +1057,7 @@ def run_elasticsearch_preprocessing():
         
         # Check sales-records-consolidated index
         sales_index = "sales-records-consolidated"
-        print(f"🔍 Checking {sales_index} index...")
+        print(f"�� Checking {sales_index} index...")
         
         if not es.indices.exists(index=sales_index):
             raise ValueError(f"❌ Index '{sales_index}' does not exist. There is no data to use.")
@@ -1175,23 +1113,33 @@ def run_elasticsearch_preprocessing():
 # %% [markdown]
 # ## Pipeline Execution Summary
 # 
-# Displays comprehensive information about created resources and job status.
+# This section displays all the resources created during pipeline setup.
 # 
-# ### Resource Information
-# - **Data Sources**: S3 bucket path and Elasticsearch source index
-# - **Destination**: Elasticsearch destination index (customer-support)
-# - **Connectors**: Source and destination connector IDs
-# - **Workflows**: Workflow IDs for both parallel workflows
-# - **Jobs**: Job IDs and execution status
+# ### Resource Tracking
+# 
+# **Data Sources**
+# - S3 bucket path for document storage
+# - Elasticsearch source index for business data
+# 
+# **Processing Infrastructure**
+# - Source connector IDs for data ingestion
+# - Destination connector ID for result storage
+# - Workflow IDs for the processing pipelines
+# 
+# **Execution Status**
+# - Job IDs for monitoring and debugging
+# - Current processing status
+# - Resource endpoints for verification
 # 
 # ### Status Indicators
-# - Shows "SKIPPED" for S3 components if S3 source connector creation failed
-# - Displays actual resource IDs when creation succeeded
-# - Provides endpoint information for verification and monitoring
 # 
-# This summary enables tracking of all pipeline components and their current state.
-# %%
+# - ✅ **Created successfully**: Resource is ready and operational
+# - **SKIPPED**: Component was bypassed (usually S3 if setup failed)
+# - **Job IDs**: For tracking processing progress
+# 
+# This summary provides everything needed to monitor and troubleshoot the pipeline.
 
+# %%
 def print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id):
     """Print comprehensive pipeline summary."""
     print("\n" + "=" * 80)
@@ -1206,38 +1154,6 @@ def print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id)
     print(f"")
     print(f"🚀 S3 PDFs Job ID: {s3_job_id if s3_job_id else SKIPPED}")
     print(f"🚀 Elasticsearch Sales Job ID: {es_job_id}")
-
-# %% [markdown]
-# ## Result Verification
-# 
-# Analyzes processed results in the customer-support index to confirm successful data integration.
-# 
-# ### Document Analysis
-# - **Count Verification**: Reports total number of processed documents
-# - **Source Detection**: Identifies documents from different data sources using metadata
-# - **Data Source Mapping**: Categorizes documents by origin (S3 files, Elasticsearch records)
-# - **Random Sampling**: Uses Elasticsearch `function_score` with `random_score` to sample 50 documents for analysis
-# 
-# ### Source Identification Logic
-# Uses metadata fields to determine document origins:
-# - `data_source-url`: Direct source URL reference
-# - `data_source-record_locator-index_name`: Elasticsearch source index
-# - `filename`: File-based sources (S3 documents)
-# - `filetype`: Document type indicators
-# 
-# ### Search Functionality Testing
-# Performs test searches across the unified index:
-# - Tests common search terms: "manual", "customer", "product", "support"
-# - Verifies text search functionality across processed content
-# - Reports match counts for each test query
-# 
-# ### Output Format
-# - Pretty-prints sample documents from each identified data source
-# - Shows metadata structure and content previews
-# - Confirms index readiness for hybrid RAG applications
-# 
-# This verification step ensures both workflows successfully processed and integrated their respective data sources.
-# %%
 
 def verify_customer_support_results(s3_job_id=None, es_job_id=None):
     """
@@ -1380,48 +1296,47 @@ def verify_customer_support_results(s3_job_id=None, es_job_id=None):
         print("💡 This is normal if workflows are still processing or if there is a connection issue.")
 
 # %% [markdown]
-# ## Main Pipeline Orchestration
+# ## Orchestrating the Complete Pipeline
 # 
-# Coordinates the complete hybrid RAG pipeline execution across six sequential steps.
+# The main function coordinates all pipeline steps in logical sequence.
 # 
-# ### Step 0: Data Source Preparation
-# - Downloads source data from GitHub repository zip files
-# - Sets up Elasticsearch index with sales records
-# - Creates and populates S3 bucket with PDF documents
-# - Exits if data preparation fails
+# ### Six-Step Process
 # 
-# ### Step 1: Elasticsearch Preprocessing
-# - Validates source data availability (sales-records-consolidated index)
-# - Prepares destination index (customer-support)
-# - Exits if source data is unavailable
+# **Step 0: Data Preparation**
+# - Downloads and sets up demo data sources
+# - Creates Elasticsearch index with sales records
+# - Populates S3 bucket with product documentation
 # 
-# ### Step 2: Source Connector Creation
-# - Creates S3 source connector for PDF documents
-# - Creates Elasticsearch source connector for sales records
-# - Exits if either connector creation fails
+# **Step 1: Environment Validation**
+# - Confirms source data availability
+# - Prepares clean destination index
+# - Validates all required credentials
 # 
-# ### Step 3: Destination Connector Creation
-# - Creates unified Elasticsearch destination connector
-# - Configures customer-support index as target
-# - Exits if destination connector creation fails
+# **Step 2-3: Connector Setup**
+# - Creates source connectors for both data types
+# - Establishes destination connector for unified results
+# - Configures authentication and access
 # 
-# ### Step 4: Workflow Creation
-# - Creates parallel workflows with identical processing nodes
-# - Configures both workflows to write to same destination
-# - Exits if Elasticsearch workflow creation fails (S3 workflow is optional)
+# **Step 4: Workflow Creation**
+# - Builds parallel processing workflows
+# - Configures identical processing pipelines
+# - Links sources to unified destination
 # 
-# ### Step 5: Workflow Execution
-# - Starts both workflows for parallel processing
+# **Step 5: Execution**
+# - Starts both workflows simultaneously
 # - Returns job IDs for monitoring
-# - Exits if job initiation fails
+# - Initiates cloud-based processing
 # 
-# ### Step 6: Summary Display
-# - Shows all created resource IDs and job information
-# - Provides status overview for monitoring and debugging
+# **Step 6: Summary**
+# - Reports all created resources
+# - Provides tracking information
+# - Displays pipeline status
 # 
-# The function returns job IDs for both workflows, enabling subsequent monitoring and verification.
-# %%
+# ### Error Handling
+# 
+# The pipeline uses "fail-fast" approach - any critical step failure stops execution with clear error messages, preventing wasted processing time.
 
+# %%
 def main():
     """Main pipeline execution"""
     print("🚀 Starting Hybrid RAG Pipeline")
@@ -1498,30 +1413,46 @@ def main():
 
     # Step 6: Pipeline Summary
     print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id)
-    return s3_job_id, es_job_id
+    return s3_job_id, es_job_id 
 
 # %% [markdown]
-# ## Pipeline Execution Flow
+# ## Running the Complete Pipeline
 # 
-# The script executes the complete pipeline and monitors job completion.
+# This final section executes the pipeline and verifies results.
 # 
 # ### Execution Sequence
-# 1. **Pipeline Initialization**: Calls `main()` to execute all setup and workflow creation steps
-# 2. **Job Monitoring**: Polls both job statuses until completion using `poll_job_status()`
-# 3. **Result Verification**: Analyzes processed results in the destination index
 # 
-# ### Job Monitoring Strategy
-# - Monitors Elasticsearch job first, then S3 job
-# - Blocks execution until both jobs reach terminal state (COMPLETED or FAILED)
-# - Provides real-time status updates during processing
+# 1. **Pipeline Setup**: Calls `main()` to create all resources and start processing
+# 2. **Job Monitoring**: Waits for both workflows to complete successfully
+# 3. **Result Verification**: Analyzes the unified knowledge base
+# 
+# ### Monitoring Strategy
+# 
+# - Polls both job statuses until completion
+# - Provides real-time progress updates
+# - Handles both success and failure scenarios
+# - Blocks until all processing finishes
 # 
 # ### Final Verification
-# - Calls `verify_customer_support_results()` after job completion
-# - Analyzes document count, source distribution, and search functionality
-# - Confirms successful data integration from both sources
 # 
-# This execution flow ensures complete pipeline execution with verification of results.
+# Once jobs complete, the verification step:
+# - Confirms documents from both sources are present
+# - Tests search functionality across the unified index
+# - Validates the hybrid RAG system is ready for queries
+# 
+# ### Next Steps
+# 
+# With your unified knowledge base created, you can:
+# - Build RAG applications that query across all data sources
+# - Implement customer support chatbots with comprehensive knowledge
+# - Create search interfaces that surface relevant information from any source
+# - Extend the pipeline to include additional data sources
+# 
+# **Your hybrid RAG system is now operational!**
+
 # %%
+# Pipeline execution runner - requires main() and verification functions to be imported
+# Note: All imports and functions are defined in other scripts
 
 # Run the pipeline
 s3_job_id, es_job_id = main()
@@ -1533,4 +1464,4 @@ s3_job_info = poll_job_status(s3_job_id, "S3 Ingest")
 # Verify the results (run this after workflows have completed)
 print("\n🔍 Verifying processed results")
 print("-" * 50)
-verify_customer_support_results()
+verify_customer_support_results() 
