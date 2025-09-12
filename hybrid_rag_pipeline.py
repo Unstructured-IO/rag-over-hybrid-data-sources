@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 # [[MD:INTRO]]
 
+# [[MD:API_KEY_SETUP]]
+
+# [[MD:AWS_S3_SETUP]]
+
+# [[MD:ELASTICSEARCH_SETUP]]
+
 import sys, subprocess
 
 def ensure_notebook_deps() -> None:
@@ -53,24 +59,56 @@ load_dotenv()
 # Configuration
 SKIPPED = "SKIPPED"
 
-# AWS Configuration
+# =============================================================================
+# CONFIGURATION OPTIONS - Choose ONE of the following methods:
+# =============================================================================
+
+# METHOD 1: Use .env file (RECOMMENDED)
+# Create a .env file in the project root with your actual values
+# Then keep all the os.getenv() lines below as-is
+
+# METHOD 2: Paste your credentials directly below
+# Comment out the os.getenv() lines and uncomment the direct assignment lines
+# Replace "PASTE_YOUR_VALUE_HERE" with your actual credentials
+
+# =============================================================================
+# AWS CONFIGURATION
+# =============================================================================
+# Method 1: Environment variables (default)
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "your-access-key-id")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "your-secret-access-key")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-# These are HTTPS URL prefixes (not s3:// URIs)
 S3_SOURCE_BUCKET = os.getenv("S3_SOURCE_BUCKET")
-S3_DESTINATION_BUCKET = os.getenv("S3_DESTINATION_BUCKET")
-S3_OUTPUT_PREFIX = os.getenv("S3_OUTPUT_PREFIX", "")
 
+# Method 2: Direct assignment (uncomment and paste your values)
+# AWS_ACCESS_KEY_ID = "PASTE_YOUR_AWS_ACCESS_KEY_ID_HERE"
+# AWS_SECRET_ACCESS_KEY = "PASTE_YOUR_AWS_SECRET_ACCESS_KEY_HERE"
+# AWS_REGION = "us-east-1"
+# S3_SOURCE_BUCKET = "PASTE_YOUR_SOURCE_BUCKET_NAME_HERE"
 
-# Unstructured API Configuration
+# =============================================================================
+# UNSTRUCTURED API CONFIGURATION
+# =============================================================================
+# Method 1: Environment variables (default)
 UNSTRUCTURED_API_KEY = os.getenv("UNSTRUCTURED_API_KEY", "your-unstructured-api-key")
 UNSTRUCTURED_API_URL = os.getenv("UNSTRUCTURED_API_URL", "https://platform.unstructuredapp.io/api/v1")
 
-# Elasticsearch Configuration
+# Method 2: Direct assignment (uncomment and paste your values)
+# UNSTRUCTURED_API_KEY = "PASTE_YOUR_UNSTRUCTURED_API_KEY_HERE"
+# UNSTRUCTURED_API_URL = "https://platform.unstructuredapp.io/api/v1"
+
+# =============================================================================
+# ELASTICSEARCH CONFIGURATION
+# =============================================================================
+# Method 1: Environment variables (default)
 ELASTICSEARCH_HOST = os.getenv("ELASTICSEARCH_HOST", "your-elasticsearch-host")
 ELASTICSEARCH_API_KEY = os.getenv("ELASTICSEARCH_API_KEY", "your-elasticsearch-api-key")
 ELASTICSEARCH_INDEX = os.getenv("ELASTICSEARCH_INDEX", "sales-records-consolidated")
+
+# Method 2: Direct assignment (uncomment and paste your values)
+# ELASTICSEARCH_HOST = "PASTE_YOUR_ELASTICSEARCH_HOST_HERE"  # e.g., "https://my-cluster.es.us-east-1.aws.com:9200"
+# ELASTICSEARCH_API_KEY = "PASTE_YOUR_ELASTICSEARCH_API_KEY_HERE"
+# ELASTICSEARCH_INDEX = "sales-records-consolidated"
 
 # Validation
 REQUIRED_VARS = {
@@ -80,7 +118,6 @@ REQUIRED_VARS = {
     "ELASTICSEARCH_HOST": ELASTICSEARCH_HOST,
     "ELASTICSEARCH_API_KEY": ELASTICSEARCH_API_KEY,
     "S3_SOURCE_BUCKET": S3_SOURCE_BUCKET,
-    "S3_DESTINATION_BUCKET": S3_DESTINATION_BUCKET,
 }
 
 missing_vars = [key for key, value in REQUIRED_VARS.items() if not value or value.startswith("your-")]
@@ -93,54 +130,17 @@ print("✅ Configuration loaded successfully")
 
 # Unstructured client will be initialized using context managers in each function
 
-def clear_output_bucket():
-    """Clear all contents from the output S3 bucket before running pipeline"""
-    try:
-        import boto3
-        
-        s3 = boto3.client(
-            's3',
-            region_name=AWS_REGION,
-            aws_access_key_id=AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=AWS_SECRET_ACCESS_KEY
-        )
-        
-        response = s3.list_objects_v2(Bucket=S3_DESTINATION_BUCKET)
-        
-        if 'Contents' in response:
-            objects_to_delete = [{'Key': obj['Key']} for obj in response['Contents']]
-            
-            if objects_to_delete:
-                s3.delete_objects(
-                    Bucket=S3_DESTINATION_BUCKET,
-                    Delete={'Objects': objects_to_delete}
-                )
-                print(f"✅ Deleted {len(objects_to_delete)} existing files")
-            else:
-                print("📁 Bucket was already empty")
-        else:
-            print("📁 Bucket was already empty")
-            
-    except Exception as e:
-        print(f"⚠️ Could not clear bucket (continuing anyway): {e}")
 
 # [[MD:S3_SOURCE_CONNECTOR]]
 
 def create_s3_source_connector():
     """Create an S3 source connector for PDF documents.
-
-    Accepts the following in S3_SOURCE_BUCKET and normalizes to s3:// for the connector:
-    - Raw bucket name (e.g., example-data-bose-headphones)
-    - Bucket + prefix (e.g., example-data-bose-headphones/manuals)
-    - s3:// URL (e.g., s3://example-data-bose-headphones/manuals/)
-    - HTTPS URL (e.g., https://example-data-bose-headphones.s3.us-east-2.amazonaws.com/manuals/)
     """
     try:
         if not S3_SOURCE_BUCKET:
             raise ValueError("S3_SOURCE_BUCKET is required (bucket name, s3:// URL, or https:// URL)")
         value = S3_SOURCE_BUCKET.strip()
-        print("value")
-        print(value)    
+
         # Build s3:// URL from various accepted formats
         if value.startswith("s3://"):
             s3_style = value if value.endswith("/") else value + "/"
@@ -154,8 +154,6 @@ def create_s3_source_connector():
             # treat as raw bucket or bucket/prefix
             s3_style = f"s3://{value if value.endswith('/') else value + '/'}"
         
-        print("s3_style")
-        print(s3_style)
         with UnstructuredClient(api_key_auth=UNSTRUCTURED_API_KEY) as client:
             response = client.sources.create_source(
                 request=CreateSourceRequest(
@@ -387,12 +385,13 @@ def poll_job_status(job_id, job_name, wait_time=30):
             status = job.status
             
             if status in ["SCHEDULED", "IN_PROGRESS"]:
+                print(f"⏳ {job_name} job status: {status}")
                 time.sleep(wait_time)
             elif status == "COMPLETED":
-                print(f":white_check_mark: {job_name} job completed successfully!")
+                print(f"{job_name} job completed successfully!")
                 return job
             elif status == "FAILED":
-                print(f":x: {job_name} job failed!")
+                print(f"{job_name} job failed!")
                 return job
             else:
                 print(f"❓ Unknown {job_name} job status: {status}")
@@ -475,7 +474,7 @@ def run_elasticsearch_preprocessing():
 
 # [[MD:SUMMARY]]
 
-def print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id, s3_job, es_job):
+def print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id):
     """Print comprehensive pipeline summary."""
     print("\n" + "=" * 80)
     print("📊 HYBRID RAG PIPELINE SUMMARY")
@@ -489,35 +488,18 @@ def print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id,
     print(f"")
     print(f"🚀 S3 PDFs Job ID: {s3_job_id if s3_job_id else SKIPPED}")
     print(f"🚀 Elasticsearch Sales Job ID: {es_job_id}")
-    print(f"")
-    print(f"✅ S3 PDFs Job Status: {s3_job.status if s3_job else SKIPPED}")
-    print(f"✅ Elasticsearch Sales Job Status: {es_job.status if es_job else "Unknown"}")
-    
-    # Success check
-    s3_success = s3_job and s3_job.status == "COMPLETED"
-    es_success = es_job and es_job.status == "COMPLETED"
-    
-    print(f"\n🎯 PIPELINE RESULTS:")
-    print("=" * 30)
-    
-    if s3_success and es_success:
-        print("🎉 Both workflows completed successfully!")
-    elif s3_success:
-        print("🎉 S3 PDFs workflow completed successfully!")
-    elif es_success:
-        print("🎉 Elasticsearch workflow completed successfully!")
-    else:
-        print("⚠️ Workflows completed with issues. Check the logs above.")
-    
-    if s3_success or es_success:
-        print("📁 Check your Elasticsearch customer-support index for processed results:")
-        print(f"   {ELASTICSEARCH_HOST}/customer-support")
-        print("🔍 This hybrid dataset is now ready for RAG applications!")
-    else:
-        print("💡 Check the Unstructured dashboard for detailed job status.")
 
-def verify_customer_support_results():
-    """Verify the processed results in the customer-support index."""
+# [[MD:VERIFICATION]]
+
+def verify_customer_support_results(s3_job_id=None, es_job_id=None):
+    """
+    Verifies the processed results in the customer-support index, prettyprinting one doc per unique data source.
+    Assumes jobs have already completed successfully.
+    """
+    import pprint
+
+    print("🔍 Verifying processed results in 'customer-support' index (assuming jobs have completed)...")
+
     try:
         # Initialize Elasticsearch client
         es = Elasticsearch(
@@ -527,105 +509,93 @@ def verify_customer_support_results():
             max_retries=3,
             retry_on_timeout=True
         )
-        
+
         index_name = "customer-support"
-        
+
         # Check if index exists
         if not es.indices.exists(index=index_name):
-            print(f"❌ Index '{index_name}' does not exist yet. Workflows may still be processing.")
+            print(f"❌ Index '{index_name}' does not exist. Workflows may not have written results yet.")
             return
-        
+
         # Get document count
         count_response = es.count(index=index_name)
         total_docs = count_response['count']
         print(f"📊 Total processed documents: {total_docs}")
-        
+
         if total_docs == 0:
-            print("⏳ No documents found yet. Workflows may still be processing.")
+            print("⏳ No documents found yet. Workflows may still be processing or index is empty.")
             print("💡 Check the Unstructured dashboard for job status.")
             return
-        
-        # Try to identify source types by looking for common patterns
-        # S3 PDF documents typically have different metadata than Elasticsearch sources
+
         print(f"\n📋 Analyzing Document Sources:")
         print("=" * 40)
-        
+
         # Get sample documents to analyze source patterns
+        # Use function_score with random_score to sample documents randomly
         sample_response = es.search(
             index=index_name,
             body={
-                "size": 20,  # Get more samples to find different source types
+                "size": 50,  # Get more samples to increase chance of seeing all sources
                 "_source": ["metadata", "text", "element_id"],
-                "sort": [{"_timestamp": {"order": "desc", "unmapped_type": "date"}}]
+                "query": {
+                    "function_score": {
+                        "query": {"match_all": {}},
+                        "random_score": {}
+                    }
+                }
             }
         )
         
-        s3_docs = []
-        es_docs = []
+
+        # Map: data_source_key -> [doc, ...]
+        data_source_map = {}
         unknown_docs = []
-        
-        # Analyze documents to determine source
+
         for hit in sample_response['hits']['hits']:
             source = hit['_source']
             metadata = source.get('metadata', {})
-            
-            # Look for indicators of S3 PDF source vs Elasticsearch source
-            if 'filename' in metadata or 'filetype' in metadata or '.pdf' in str(metadata):
-                s3_docs.append(hit)
-            elif 'consolidated_text' in str(source) or 'product_line' in str(metadata):
-                es_docs.append(hit)
+            # Try to get a unique data source key
+            # Prefer data_source-url, fallback to index_name, fallback to filename/filetype
+            if "data_source-url" in metadata:
+                key = f"url:{metadata['data_source-url']}"
+            elif "data_source-record_locator-index_name" in metadata:
+                key = f"index:{metadata['data_source-record_locator-index_name']}"
+            elif "filename" in metadata:
+                key = f"file:{metadata['filename']}"
+            elif "filetype" in metadata:
+                key = f"type:{metadata['filetype']}"
             else:
+                key = "unknown"
+
+            if key == "unknown":
                 unknown_docs.append(hit)
-        
-        # Show statistics
-        print(f"🔍 Source Analysis (from {len(sample_response['hits']['hits'])} sample docs):")
-        print(f"   📄 Likely S3 PDF documents: {len(s3_docs)}")
-        print(f"   🔗 Likely Elasticsearch documents: {len(es_docs)}")
-        print(f"   ❓ Unknown source: {len(unknown_docs)}")
-        
-        # Show example from S3 PDF source if available
-        if s3_docs:
-            print(f"\n📄 Example S3 PDF Document:")
-            print("-" * 35)
-            s3_example = s3_docs[0]['_source']
-            metadata = s3_example.get('metadata', {})
-            text = s3_example.get('text', '')
-            
-            print(f"   Element ID: {s3_example.get('element_id', 'N/A')}")
-            print(f"   Filename: {metadata.get('filename', 'N/A')}")
-            print(f"   File Type: {metadata.get('filetype', 'N/A')}")
-            print(f"   Text Preview: {text[:200]}..." if len(text) > 200 else f"   Text: {text}")
-            
-        # Show example from Elasticsearch source if available
-        if es_docs:
-            print(f"\n🔗 Example Elasticsearch Document:")
-            print("-" * 38)
-            es_example = es_docs[0]['_source']
-            metadata = es_example.get('metadata', {})
-            text = es_example.get('text', '')
-            
-            print(f"   Element ID: {es_example.get('element_id', 'N/A')}")
-            print(f"   Metadata Keys: {list(metadata.keys())}")
-            print(f"   Text Preview: {text[:200]}..." if len(text) > 200 else f"   Text: {text}")
-        
-        # Show unknown example if any
+            else:
+                if key not in data_source_map:
+                    data_source_map[key] = hit  # Only keep the first doc for each source
+
+        print(f"🔍 Unique data sources found: {len(data_source_map)}")
+        for i, (key, doc) in enumerate(data_source_map.items(), 1):
+            print(f"\n--- Data Source {i} ({key}) ---")
+            pprint.pprint(doc['_source'], depth=6, compact=False, sort_dicts=False)
+
         if unknown_docs:
             print(f"\n❓ Example Unknown Source Document:")
             print("-" * 35)
             unknown_example = unknown_docs[0]['_source']
             metadata = unknown_example.get('metadata', {})
             text = unknown_example.get('text', '')
-            
             print(f"   Element ID: {unknown_example.get('element_id', 'N/A')}")
             print(f"   Metadata: {metadata}")
             print(f"   Text Preview: {text[:200]}..." if len(text) > 200 else f"   Text: {text}")
-        
+            print("   Metadata prettyprint:")
+            pprint.pprint(metadata, depth=6, compact=False, sort_dicts=False)
+
         # Test search functionality
         print(f"\n🔍 Testing Search Functionality:")
         print("=" * 32)
-        
+
         search_tests = ["manual", "customer", "product", "support"]
-        
+
         for search_term in search_tests:
             search_response = es.search(
                 index=index_name,
@@ -638,10 +608,10 @@ def verify_customer_support_results():
                     }
                 }
             )
-            
+
             hits = search_response['hits']['total']['value']
             print(f"   🔎 '{search_term}': {hits} matches")
-        
+
         print(f"\n" + "=" * 50)
         print("🎉 CUSTOMER-SUPPORT INDEX VERIFICATION")
         print("=" * 50)
@@ -649,10 +619,10 @@ def verify_customer_support_results():
         print("✅ Documents from both workflows are present (if both completed)")
         print("✅ Text search is functional across processed content")
         print("✅ Ready for hybrid RAG queries!")
-        
+
     except Exception as e:
         print(f"❌ Error verifying results: {e}")
-        print("💡 This is normal if workflows are still processing.")
+        print("💡 This is normal if workflows are still processing or if there is a connection issue.")
 
 # [[MD:MAIN]]
 
@@ -708,33 +678,33 @@ def main():
     print("-" * 50)
     
     s3_job_id = None
+    es_job_id = None
+
     if s3_workflow_id:
         s3_job_id = run_workflow(s3_workflow_id, "S3 PDFs")
-    
-    es_job_id = run_workflow(es_workflow_id, "Elasticsearch Sales")
-    
-    if not es_job_id:
-        print("❌ Failed to start Elasticsearch workflow")
-        return
-    
-    # Step 5: Monitor Jobs
-    print("\n⏳ Step 5: Monitoring job progress")
-    print("-" * 50)
-    
-    print("⚠️ Job monitoring disabled - check Unstructured dashboard for status")
-    print("💡 Jobs are running in background and will deposit results in Elasticsearch customer-support index")
-    
-    # Set dummy job objects for summary
-    s3_job = None
-    es_job = type('Job', (), {'status': 'SUBMITTED'})()
-    
-    # Step 6: Pipeline Summary
-    print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id, s3_job, es_job)
+        if not s3_job_id:
+            print("❌ Failed to start S3 workflow")
+            return
+
+    if es_workflow_id:
+        es_job_id = run_workflow(es_workflow_id, "Elasticsearch Sales")
+        if not es_job_id:
+            print("❌ Failed to start Elasticsearch workflow")
+            return
+
+    # Step 5: Pipeline Summary
+    print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id)
+    return s3_job_id, es_job_id
+
+# [[MD:EXECUTION_FLOW]]
 
 # Run the pipeline
-main()
+s3_job_id, es_job_id = main()
 
-# %%
+# Poll both jobs to make sure they have completed before proceeding
+es_job_info = poll_job_status(es_job_id, "Elasticsearch Ingest")
+s3_job_info = poll_job_status(s3_job_id, "S3 Ingest")
+
 # Verify the results (run this after workflows have completed)
 print("\n🔍 Verifying processed results")
 print("-" * 50)

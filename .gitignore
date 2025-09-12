@@ -23,3 +23,6 @@ wheels/
 .installed.cfg
 *.egg
 output-downloads-*/
+
+hybrid_rag_pipeline.py.bak
+hybrid_rag_pipeline_enriched.ipynb.bak
