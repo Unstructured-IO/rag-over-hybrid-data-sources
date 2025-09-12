@@ -493,7 +493,7 @@ def print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id)
 
 def verify_customer_support_results(s3_job_id=None, es_job_id=None):
     """
-    Verifies the processed results in the customer-support index, prettyprinting one doc per unique data source.
+    Verifies the processed results in the customer-support index, prettyprinting one doc per unique source connector.
     Assumes jobs have already completed successfully.
     """
     import pprint
@@ -527,7 +527,7 @@ def verify_customer_support_results(s3_job_id=None, es_job_id=None):
             print("💡 Check the Unstructured dashboard for job status.")
             return
 
-        print(f"\n📋 Analyzing Document Sources:")
+        print(f"\n📋 Analyzing Source Connectors:")
         print("=" * 40)
 
         # Get sample documents to analyze source patterns
@@ -547,35 +547,42 @@ def verify_customer_support_results(s3_job_id=None, es_job_id=None):
         )
         
 
-        # Map: data_source_key -> [doc, ...]
-        data_source_map = {}
+        # Map: source_connector_key -> [doc, ...]
+        source_connector_map = {}
         unknown_docs = []
 
         for hit in sample_response['hits']['hits']:
             source = hit['_source']
             metadata = source.get('metadata', {})
-            # Try to get a unique data source key
-            # Prefer data_source-url, fallback to index_name, fallback to filename/filetype
-            if "data_source-url" in metadata:
-                key = f"url:{metadata['data_source-url']}"
-            elif "data_source-record_locator-index_name" in metadata:
-                key = f"index:{metadata['data_source-record_locator-index_name']}"
-            elif "filename" in metadata:
-                key = f"file:{metadata['filename']}"
-            elif "filetype" in metadata:
-                key = f"type:{metadata['filetype']}"
+            
+            # Determine source connector type based on metadata patterns
+            if "data_source-record_locator-index_name" in metadata:
+                # Elasticsearch source connector
+                key = f"elasticsearch:{metadata['data_source-record_locator-index_name']}"
+            elif "data_source-url" in metadata:
+                # S3 source connector - group all S3 URLs by bucket
+                url = metadata['data_source-url']
+                if url.startswith('s3://'):
+                    # Extract bucket name from S3 URL
+                    bucket = url.split('/')[2] if '/' in url else url.replace('s3://', '')
+                    key = f"s3:{bucket}"
+                else:
+                    key = f"s3:unknown"
+            elif "filename" in metadata and metadata.get('filetype') == 'pdf':
+                # PDF files from S3 (fallback detection)
+                key = "s3:pdfs"
             else:
                 key = "unknown"
 
             if key == "unknown":
                 unknown_docs.append(hit)
             else:
-                if key not in data_source_map:
-                    data_source_map[key] = hit  # Only keep the first doc for each source
+                if key not in source_connector_map:
+                    source_connector_map[key] = hit  # Only keep the first doc for each source connector
 
-        print(f"🔍 Unique data sources found: {len(data_source_map)}")
-        for i, (key, doc) in enumerate(data_source_map.items(), 1):
-            print(f"\n--- Data Source {i} ({key}) ---")
+        print(f"🔍 Unique source connectors found: {len(source_connector_map)}")
+        for i, (key, doc) in enumerate(source_connector_map.items(), 1):
+            print(f"\n--- Source Connector {i} ({key}) ---")
             pprint.pprint(doc['_source'], depth=6, compact=False, sort_dicts=False)
 
         if unknown_docs:
@@ -616,7 +623,7 @@ def verify_customer_support_results(s3_job_id=None, es_job_id=None):
         print("🎉 CUSTOMER-SUPPORT INDEX VERIFICATION")
         print("=" * 50)
         print("✅ Index exists and contains processed documents")
-        print("✅ Documents from both workflows are present (if both completed)")
+        print("✅ Documents from both source connectors are present (if both completed)")
         print("✅ Text search is functional across processed content")
         print("✅ Ready for hybrid RAG queries!")
 
