@@ -42,9 +42,16 @@ def get_s3_client():
         region_name=aws_region
     )
 
-def zip_pdfs(input_dir: str, output_path: str):
+def zip_pdfs(input_dir: str, output_path: str = None):
     """Zip PDF files from a directory."""
     print(f"🔄 Zipping PDFs from '{input_dir}'...")
+    
+    # Generate output path based on input directory name if not provided
+    if not output_path:
+        input_path = Path(input_dir)
+        # Use the directory name to create zip file name
+        dir_name = input_path.name
+        output_path = f"source_data/{dir_name}.zip"
     
     try:
         input_path = Path(input_dir)
@@ -191,8 +198,8 @@ def main():
     zip_parser = subparsers.add_parser('zip', help='Zip PDF files from directory')
     zip_parser.add_argument('--input', '-i', required=True,
                            help='Input directory containing PDFs (e.g., source_data/s3_pdfs)')
-    zip_parser.add_argument('--output', '-o', required=True,
-                           help='Output zip file path (e.g., source_data/s3_pdfs.zip)')
+    zip_parser.add_argument('--output', '-o',
+                           help='Output zip file path (default: source_data/{dirname}.zip)')
     
     # Load command
     load_parser = subparsers.add_parser('load', help='Load PDFs from zip file to S3 bucket')

@@ -43,9 +43,15 @@ def get_elasticsearch_client():
         retry_on_timeout=True
     )
 
-def download_index(output_path: str, index_name: str = "sales-records-consolidated"):
+def download_index(output_path: str = None, index_name: str = "sales-records-consolidated"):
     """Download Elasticsearch index data and save as zip file."""
     print(f"🔄 Downloading index '{index_name}'...")
+    
+    # Generate output path based on index name if not provided
+    if not output_path:
+        # Convert index name to zip file name (replace hyphens with underscores for consistency)
+        zip_name = index_name.replace('-', '_') + '.zip'
+        output_path = f"source_data/{zip_name}"
     
     try:
         es = get_elasticsearch_client()
@@ -159,8 +165,8 @@ def main():
     
     # Download command
     download_parser = subparsers.add_parser('download', help='Download index to zip file')
-    download_parser.add_argument('--output', '-o', required=True, 
-                                help='Output zip file path (e.g., source_data/sales_data.zip)')
+    download_parser.add_argument('--output', '-o', 
+                                help='Output zip file path (default: source_data/{index_name}.zip)')
     download_parser.add_argument('--index', '-i', default='sales-records-consolidated',
                                 help='Index name to download (default: sales-records-consolidated)')
     

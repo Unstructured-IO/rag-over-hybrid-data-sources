@@ -187,7 +187,7 @@ def setup_elasticsearch_data():
                 return True
         
         # Download sales data zip file
-        sales_data_url = "https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/sales_data.zip"
+        sales_data_url = "https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/sales_records_consolidated.zip"
         
         with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp_file:
             if not download_file(sales_data_url, tmp_file.name):

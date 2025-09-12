@@ -6,22 +6,22 @@ This directory contains scripts and data files for managing the source data used
 
 ```
 source_data/
-├── README.md                    # This file
-├── s3_pdfs/                    # Directory containing PDF source files
-├── sales_data.zip              # sales-records-consolidated index (100 documents, 18KB)
-├── sales_records.zip           # sales-records index (100 documents, 16KB)
-└── s3_pdfs.zip                 # S3 PDF files (9 Bose headphone manuals, 6.5MB)
+├── README.md                          # This file
+├── s3_pdfs/                          # Directory containing PDF source files
+├── sales_records_consolidated.zip    # sales-records-consolidated index (100 documents, 18KB)
+├── sales_records.zip                 # sales-records index (100 documents, 16KB)
+└── s3_pdfs.zip                      # S3 PDF files (9 Bose headphone manuals, 6.5MB)
 ```
 
 ## Data Files
 
 ### Elasticsearch Sales Data
 
-**`sales_data.zip`** - **Used by hybrid RAG pipeline**
+**`sales_records_consolidated.zip`** - **Used by hybrid RAG pipeline**
 - Contains the `sales-records-consolidated` index
 - 100 synthetic sales records with consolidated fields
 - Used by the automated data preparation in `hybrid_rag_pipeline.py`
-- Downloaded from: `https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/sales_data.zip`
+- Downloaded from: `https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/sales_records_consolidated.zip`
 
 **`sales_records.zip`** - **Reference data**
 - Contains the `sales-records` index  
@@ -43,17 +43,20 @@ Manages Elasticsearch index data for both sales indices.
 
 #### Download index data to zip file:
 ```bash
-# Download sales-records-consolidated (used by pipeline)
-python ../load_es_sales_index.py download --output source_data/sales_data.zip --index sales-records-consolidated
+# Download sales-records-consolidated (used by pipeline) - creates sales_records_consolidated.zip
+python ../load_es_sales_index.py download --index sales-records-consolidated
 
-# Download sales-records (reference data)
-python ../load_es_sales_index.py download --output source_data/sales_records.zip --index sales-records
+# Download sales-records (reference data) - creates sales_records.zip
+python ../load_es_sales_index.py download --index sales-records
+
+# Or specify custom output path
+python ../load_es_sales_index.py download --output source_data/custom_name.zip --index sales-records-consolidated
 ```
 
 #### Load data from zip file to index:
 ```bash
 # Load consolidated data (pipeline default)
-python ../load_es_sales_index.py load --input source_data/sales_data.zip
+python ../load_es_sales_index.py load --input source_data/sales_records_consolidated.zip
 
 # Load non-consolidated data
 python ../load_es_sales_index.py load --input source_data/sales_records.zip --index sales-records
@@ -65,7 +68,11 @@ Manages PDF files for the S3 source connector.
 
 #### Zip PDF files from local directory:
 ```bash
-python ../load_s3_pdfs.py zip --input source_data/s3_pdfs --output source_data/s3_pdfs.zip
+# Creates s3_pdfs.zip automatically based on directory name
+python ../load_s3_pdfs.py zip --input source_data/s3_pdfs
+
+# Or specify custom output path
+python ../load_s3_pdfs.py zip --input source_data/s3_pdfs --output source_data/custom_name.zip
 ```
 
 #### Load PDFs from zip file to S3 bucket:
@@ -77,10 +84,10 @@ python ../load_s3_pdfs.py load --input source_data/s3_pdfs.zip
 
 The `hybrid_rag_pipeline.py` automatically downloads and sets up data from:
 
-1. **Elasticsearch Source**: `sales_data.zip` → `sales-records-consolidated` index
+1. **Elasticsearch Source**: `sales_records_consolidated.zip` → `sales-records-consolidated` index
 2. **S3 Source**: `s3_pdfs.zip` → S3 bucket (from `S3_SOURCE_BUCKET` env var)
 
-The pipeline is configured to use the **consolidated** sales data (`sales_data.zip`) because:
+The pipeline is configured to use the **consolidated** sales data (`sales_records_consolidated.zip`) because:
 - Multiple fields are consolidated into single long-form text fields
 - Provides maximum context for vector search operations
 - Optimized for RAG applications where comprehensive searchability is preferred
@@ -105,7 +112,7 @@ Both scripts require the following environment variables to be set in your `.env
 
 | File | Index | Documents | Size | Field Structure | Usage |
 |------|-------|-----------|------|-----------------|-------|
-| `sales_data.zip` | `sales-records-consolidated` | 100 | 18KB | Consolidated fields | **Pipeline default** |
+| `sales_records_consolidated.zip` | `sales-records-consolidated` | 100 | 18KB | Consolidated fields | **Pipeline default** |
 | `sales_records.zip` | `sales-records` | 100 | 16KB | Separate fields | Reference/comparison |
 
 ### PDF Files Included
