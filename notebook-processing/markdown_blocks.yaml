@@ -200,6 +200,49 @@ CONFIG: |
   jupytext, python-dotenv, unstructured-client, elasticsearch, boto3, and PyYAML.
   """
 
+DATA_PREPARATION: |
+  """
+  ## Data Source Preparation
+
+  Before running the workflows, this section automatically downloads and sets up the required source data from the GitHub repository.
+
+  ### Automatic Data Setup
+
+  The pipeline automatically handles data preparation by:
+
+  1. **Downloading source data** from GitHub repository zip files
+  2. **Setting up Elasticsearch index** with synthetic sales records
+  3. **Creating and populating S3 bucket** with PDF documents
+
+  ### Data Sources
+
+  **Elasticsearch Sales Data:**
+  - Downloads from: `https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/sales_data.zip`
+  - Creates the `sales-records-consolidated` index
+  - Loads 100 synthetic sales records with proper mapping
+
+  **S3 PDF Documents:**
+  - Downloads from: `https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/s3_pdfs.zip`
+  - Creates S3 bucket using the `S3_SOURCE_BUCKET` environment variable
+  - Uploads 9 Bose headphone manuals and support documents
+
+  ### Smart Caching
+
+  The data preparation step is intelligent:
+  - **Skips download** if data already exists and is populated
+  - **Verifies data integrity** by checking document/file counts
+  - **Reports status** of existing vs. newly created resources
+
+  ### Error Handling
+
+  If data preparation fails:
+  - Clear error messages indicate the specific issue
+  - Pipeline stops execution to prevent running with incomplete data
+  - Common issues: network connectivity, authentication, or storage permissions
+
+  This automated setup ensures anyone can run the pipeline immediately after configuring their credentials, without manual data preparation steps.
+  """
+
 S3_SOURCE_CONNECTOR: |
   """
   ## S3 Source Connector
@@ -463,34 +506,40 @@ MAIN: |
   """
   ## Main Pipeline Orchestration
 
-  Coordinates the complete hybrid RAG pipeline execution across five sequential steps.
+  Coordinates the complete hybrid RAG pipeline execution across six sequential steps.
 
-  ### Step 0: Elasticsearch Preprocessing
+  ### Step 0: Data Source Preparation
+  - Downloads source data from GitHub repository zip files
+  - Sets up Elasticsearch index with sales records
+  - Creates and populates S3 bucket with PDF documents
+  - Exits if data preparation fails
+
+  ### Step 1: Elasticsearch Preprocessing
   - Validates source data availability (sales-records-consolidated index)
   - Prepares destination index (customer-support)
   - Exits if source data is unavailable
 
-  ### Step 1: Source Connector Creation
+  ### Step 2: Source Connector Creation
   - Creates S3 source connector for PDF documents
   - Creates Elasticsearch source connector for sales records
   - Exits if either connector creation fails
 
-  ### Step 2: Destination Connector Creation
+  ### Step 3: Destination Connector Creation
   - Creates unified Elasticsearch destination connector
   - Configures customer-support index as target
   - Exits if destination connector creation fails
 
-  ### Step 3: Workflow Creation
+  ### Step 4: Workflow Creation
   - Creates parallel workflows with identical processing nodes
   - Configures both workflows to write to same destination
   - Exits if Elasticsearch workflow creation fails (S3 workflow is optional)
 
-  ### Step 4: Workflow Execution
+  ### Step 5: Workflow Execution
   - Starts both workflows for parallel processing
   - Returns job IDs for monitoring
   - Exits if job initiation fails
 
-  ### Step 5: Summary Display
+  ### Step 6: Summary Display
   - Shows all created resource IDs and job information
   - Provides status overview for monitoring and debugging
 

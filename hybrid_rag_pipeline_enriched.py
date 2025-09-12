@@ -169,8 +169,18 @@ ensure_notebook_deps()
 import os
 import sys
 import time
+import json
+import zipfile
+import tempfile
+import requests
+from pathlib import Path
 from dotenv import load_dotenv
 from urllib.parse import urlparse
+
+import boto3
+from botocore.exceptions import ClientError, NoCredentialsError
+from elasticsearch import Elasticsearch
+from elasticsearch.helpers import bulk
 
 from unstructured_client import UnstructuredClient
 from unstructured_client.models.operations import (
@@ -315,7 +325,311 @@ print("✅ Configuration loaded successfully")
 
 # Unstructured client will be initialized using context managers in each function
 
+# %% [markdown]
+# ## Data Source Preparation
+# 
+# Before running the workflows, this section automatically downloads and sets up the required source data from the GitHub repository.
+# 
+# ### Automatic Data Setup
+# 
+# The pipeline automatically handles data preparation by:
+# 
+# 1. **Downloading source data** from GitHub repository zip files
+# 2. **Setting up Elasticsearch index** with synthetic sales records
+# 3. **Creating and populating S3 bucket** with PDF documents
+# 
+# ### Data Sources
+# 
+# **Elasticsearch Sales Data:**
+# - Downloads from: `https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/sales_data.zip`
+# - Creates the `sales-records-consolidated` index
+# - Loads 100 synthetic sales records with proper mapping
+# 
+# **S3 PDF Documents:**
+# - Downloads from: `https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/s3_pdfs.zip`
+# - Creates S3 bucket using the `S3_SOURCE_BUCKET` environment variable
+# - Uploads 9 Bose headphone manuals and support documents
+# 
+# ### Smart Caching
+# 
+# The data preparation step is intelligent:
+# - **Skips download** if data already exists and is populated
+# - **Verifies data integrity** by checking document/file counts
+# - **Reports status** of existing vs. newly created resources
+# 
+# ### Error Handling
+# 
+# If data preparation fails:
+# - Clear error messages indicate the specific issue
+# - Pipeline stops execution to prevent running with incomplete data
+# - Common issues: network connectivity, authentication, or storage permissions
+# 
+# This automated setup ensures anyone can run the pipeline immediately after configuring their credentials, without manual data preparation steps.
+# %%
 
+def download_file(url: str, local_path: str) -> bool:
+    """Download a file from URL to local path."""
+    try:
+        print(f"📥 Downloading {url}...")
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        
+        # Create directory if it doesn't exist
+        Path(local_path).parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(local_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        
+        print(f"✅ Downloaded to {local_path}")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Error downloading {url}: {e}")
+        return False
+
+def setup_elasticsearch_data():
+    """Download and load sales data into Elasticsearch index."""
+    print("🔧 Setting up Elasticsearch sales data...")
+    
+    try:
+        # Initialize Elasticsearch client
+        es = Elasticsearch(
+            ELASTICSEARCH_HOST,
+            api_key=ELASTICSEARCH_API_KEY,
+            request_timeout=60,
+            max_retries=3,
+            retry_on_timeout=True
+        )
+        
+        # Check if index already exists and has data
+        index_name = "sales-records-consolidated"
+        if es.indices.exists(index=index_name):
+            count_response = es.count(index=index_name)
+            count_data = count_response.body if hasattr(count_response, 'body') else count_response
+            if count_data['count'] > 0:
+                print(f"✅ Index '{index_name}' already exists with {count_data['count']} documents")
+                return True
+        
+        # Download sales data zip file
+        sales_data_url = "https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/sales_data.zip"
+        
+        with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp_file:
+            if not download_file(sales_data_url, tmp_file.name):
+                return False
+            
+            # Extract and load data
+            with zipfile.ZipFile(tmp_file.name, 'r') as zipf:
+                # Load mapping
+                with zipf.open('mapping.json') as f:
+                    mapping_data = json.loads(f.read().decode('utf-8'))
+                
+                # Load documents
+                with zipf.open('documents.json') as f:
+                    documents = json.loads(f.read().decode('utf-8'))
+            
+            # Delete existing index if present
+            if es.indices.exists(index=index_name):
+                print(f"🗑️ Deleting existing index '{index_name}'...")
+                es.indices.delete(index=index_name)
+            
+            # Create index with mapping
+            index_mapping = mapping_data[index_name] if index_name in mapping_data else mapping_data[list(mapping_data.keys())[0]]
+            es.indices.create(index=index_name, body=index_mapping)
+            print(f"🔧 Created index '{index_name}' with mapping")
+            
+            # Prepare documents for bulk insert
+            def generate_docs():
+                for doc in documents:
+                    yield {
+                        "_index": index_name,
+                        "_id": doc["_id"],
+                        "_source": doc["_source"]
+                    }
+            
+            # Bulk insert documents
+            success_count, failed_items = bulk(es, generate_docs(), chunk_size=100)
+            print(f"📝 Inserted {success_count} documents")
+            
+            # Refresh index and verify
+            es.indices.refresh(index=index_name)
+            count_response = es.count(index=index_name)
+            count_data = count_response.body if hasattr(count_response, 'body') else count_response
+            doc_count = count_data['count']
+            
+            if doc_count > 0:
+                print(f"✅ Successfully loaded {doc_count} documents into '{index_name}' index")
+                return True
+            else:
+                print(f"❌ Index '{index_name}' is empty after loading")
+                return False
+            
+    except Exception as e:
+        print(f"❌ Error setting up Elasticsearch data: {e}")
+        return False
+    
+    finally:
+        # Clean up temp file
+        try:
+            os.unlink(tmp_file.name)
+        except:
+            pass
+
+def setup_s3_data():
+    """Download and load PDF files into S3 bucket."""
+    print("🔧 Setting up S3 PDF data...")
+    
+    try:
+        # Initialize S3 client
+        s3 = boto3.client(
+            's3',
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            region_name=AWS_REGION
+        )
+        
+        bucket_name = S3_SOURCE_BUCKET
+        if not bucket_name:
+            print("❌ S3_SOURCE_BUCKET not configured")
+            return False
+        
+        # Check if bucket exists and has data
+        try:
+            response = s3.list_objects_v2(Bucket=bucket_name, MaxKeys=1)
+            if response.get('KeyCount', 0) > 0:
+                # Count total objects
+                response = s3.list_objects_v2(Bucket=bucket_name)
+                object_count = len(response.get('Contents', []))
+                print(f"✅ Bucket '{bucket_name}' already exists with {object_count} files")
+                return True
+        except ClientError as e:
+            if e.response['Error']['Code'] != '404':
+                raise e
+        
+        # Download S3 PDFs zip file
+        s3_data_url = "https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/s3_pdfs.zip"
+        
+        with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp_file:
+            if not download_file(s3_data_url, tmp_file.name):
+                return False
+            
+            # Create bucket if it doesn't exist
+            try:
+                s3.head_bucket(Bucket=bucket_name)
+                print(f"📦 Using existing bucket '{bucket_name}'")
+            except ClientError as e:
+                if e.response['Error']['Code'] == '404':
+                    print(f"🔧 Creating bucket '{bucket_name}'...")
+                    try:
+                        if AWS_REGION == "us-east-1":
+                            s3.create_bucket(Bucket=bucket_name)
+                        else:
+                            s3.create_bucket(
+                                Bucket=bucket_name,
+                                CreateBucketConfiguration={'LocationConstraint': AWS_REGION}
+                            )
+                        print(f"✅ Created bucket '{bucket_name}'")
+                    except ClientError as create_error:
+                        if 'BucketAlreadyOwnedByYou' in str(create_error):
+                            print(f"📦 Bucket '{bucket_name}' already exists and is owned by you")
+                        else:
+                            raise create_error
+                else:
+                    raise e
+            
+            # Clear existing files in bucket
+            print(f"🗑️ Clearing existing files from bucket '{bucket_name}'...")
+            try:
+                response = s3.list_objects_v2(Bucket=bucket_name)
+                if 'Contents' in response:
+                    objects_to_delete = [{'Key': obj['Key']} for obj in response['Contents']]
+                    if objects_to_delete:
+                        s3.delete_objects(
+                            Bucket=bucket_name,
+                            Delete={'Objects': objects_to_delete}
+                        )
+                        print(f"🗑️ Deleted {len(objects_to_delete)} existing files")
+                    else:
+                        print("📁 Bucket was already empty")
+                else:
+                    print("📁 Bucket was already empty")
+            except ClientError as e:
+                print(f"⚠️ Could not clear bucket (continuing anyway): {e}")
+            
+            # Extract and upload files from zip
+            uploaded_count = 0
+            with zipfile.ZipFile(tmp_file.name, 'r') as zipf:
+                file_list = zipf.namelist()
+                pdf_files = [f for f in file_list if f.lower().endswith('.pdf')]
+                
+                print(f"📊 Found {len(pdf_files)} PDF files in zip")
+                
+                for file_name in pdf_files:
+                    try:
+                        # Extract file data
+                        file_data = zipf.read(file_name)
+                        
+                        # Upload to S3
+                        s3.put_object(
+                            Bucket=bucket_name,
+                            Key=file_name,
+                            Body=file_data,
+                            ContentType='application/pdf'
+                        )
+                        
+                        print(f"  📤 Uploaded: {file_name}")
+                        uploaded_count += 1
+                        
+                    except Exception as e:
+                        print(f"  ❌ Failed to upload {file_name}: {e}")
+            
+            # Verify upload
+            response = s3.list_objects_v2(Bucket=bucket_name)
+            actual_count = len(response.get('Contents', []))
+            
+            if actual_count > 0:
+                print(f"✅ Successfully uploaded {uploaded_count} PDFs to bucket '{bucket_name}'")
+                print(f"📊 Bucket now contains {actual_count} files")
+                return True
+            else:
+                print(f"❌ Bucket '{bucket_name}' is empty after upload")
+                return False
+            
+    except NoCredentialsError:
+        print("❌ AWS credentials not found. Please check your .env file.")
+        return False
+    except Exception as e:
+        print(f"❌ Error setting up S3 data: {e}")
+        return False
+    
+    finally:
+        # Clean up temp file
+        try:
+            os.unlink(tmp_file.name)
+        except:
+            pass
+
+def prepare_data_sources():
+    """Prepare both Elasticsearch and S3 data sources."""
+    print("🚀 Preparing data sources...")
+    print("=" * 50)
+    
+    # Setup Elasticsearch data
+    if not setup_elasticsearch_data():
+        print("❌ Failed to setup Elasticsearch data")
+        return False
+    
+    print()  # Add spacing
+    
+    # Setup S3 data
+    if not setup_s3_data():
+        print("❌ Failed to setup S3 data")
+        return False
+    
+    print()
+    print("✅ All data sources prepared successfully!")
+    print("=" * 50)
+    return True
 
 # %% [markdown]
 # ## S3 Source Connector
@@ -348,8 +662,7 @@ def create_s3_source_connector():
         if not S3_SOURCE_BUCKET:
             raise ValueError("S3_SOURCE_BUCKET is required (bucket name, s3:// URL, or https:// URL)")
         value = S3_SOURCE_BUCKET.strip()
-        print("value")
-        print(value)    
+
         # Build s3:// URL from various accepted formats
         if value.startswith("s3://"):
             s3_style = value if value.endswith("/") else value + "/"
@@ -363,8 +676,6 @@ def create_s3_source_connector():
             # treat as raw bucket or bucket/prefix
             s3_style = f"s3://{value if value.endswith('/') else value + '/'}"
         
-        print("s3_style")
-        print(s3_style)
         with UnstructuredClient(api_key_auth=UNSTRUCTURED_API_KEY) as client:
             response = client.sources.create_source(
                 request=CreateSourceRequest(
@@ -911,7 +1222,7 @@ def print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id)
 
 def verify_customer_support_results(s3_job_id=None, es_job_id=None):
     """
-    Verifies the processed results in the customer-support index, prettyprinting one doc per unique data source.
+    Verifies the processed results in the customer-support index, prettyprinting one doc per unique source connector.
     Assumes jobs have already completed successfully.
     """
     import pprint
@@ -945,7 +1256,7 @@ def verify_customer_support_results(s3_job_id=None, es_job_id=None):
             print("💡 Check the Unstructured dashboard for job status.")
             return
 
-        print(f"\n📋 Analyzing Document Sources:")
+        print(f"\n📋 Analyzing Source Connectors:")
         print("=" * 40)
 
         # Get sample documents to analyze source patterns
@@ -965,35 +1276,42 @@ def verify_customer_support_results(s3_job_id=None, es_job_id=None):
         )
         
 
-        # Map: data_source_key -> [doc, ...]
-        data_source_map = {}
+        # Map: source_connector_key -> [doc, ...]
+        source_connector_map = {}
         unknown_docs = []
 
         for hit in sample_response['hits']['hits']:
             source = hit['_source']
             metadata = source.get('metadata', {})
-            # Try to get a unique data source key
-            # Prefer data_source-url, fallback to index_name, fallback to filename/filetype
-            if "data_source-url" in metadata:
-                key = f"url:{metadata['data_source-url']}"
-            elif "data_source-record_locator-index_name" in metadata:
-                key = f"index:{metadata['data_source-record_locator-index_name']}"
-            elif "filename" in metadata:
-                key = f"file:{metadata['filename']}"
-            elif "filetype" in metadata:
-                key = f"type:{metadata['filetype']}"
+            
+            # Determine source connector type based on metadata patterns
+            if "data_source-record_locator-index_name" in metadata:
+                # Elasticsearch source connector
+                key = f"elasticsearch:{metadata['data_source-record_locator-index_name']}"
+            elif "data_source-url" in metadata:
+                # S3 source connector - group all S3 URLs by bucket
+                url = metadata['data_source-url']
+                if url.startswith('s3://'):
+                    # Extract bucket name from S3 URL
+                    bucket = url.split('/')[2] if '/' in url else url.replace('s3://', '')
+                    key = f"s3:{bucket}"
+                else:
+                    key = f"s3:unknown"
+            elif "filename" in metadata and metadata.get('filetype') == 'pdf':
+                # PDF files from S3 (fallback detection)
+                key = "s3:pdfs"
             else:
                 key = "unknown"
 
             if key == "unknown":
                 unknown_docs.append(hit)
             else:
-                if key not in data_source_map:
-                    data_source_map[key] = hit  # Only keep the first doc for each source
+                if key not in source_connector_map:
+                    source_connector_map[key] = hit  # Only keep the first doc for each source connector
 
-        print(f"🔍 Unique data sources found: {len(data_source_map)}")
-        for i, (key, doc) in enumerate(data_source_map.items(), 1):
-            print(f"\n--- Data Source {i} ({key}) ---")
+        print(f"🔍 Unique source connectors found: {len(source_connector_map)}")
+        for i, (key, doc) in enumerate(source_connector_map.items(), 1):
+            print(f"\n--- Source Connector {i} ({key}) ---")
             pprint.pprint(doc['_source'], depth=6, compact=False, sort_dicts=False)
 
         if unknown_docs:
@@ -1034,7 +1352,7 @@ def verify_customer_support_results(s3_job_id=None, es_job_id=None):
         print("🎉 CUSTOMER-SUPPORT INDEX VERIFICATION")
         print("=" * 50)
         print("✅ Index exists and contains processed documents")
-        print("✅ Documents from both workflows are present (if both completed)")
+        print("✅ Documents from both source connectors are present (if both completed)")
         print("✅ Text search is functional across processed content")
         print("✅ Ready for hybrid RAG queries!")
 
@@ -1045,34 +1363,40 @@ def verify_customer_support_results(s3_job_id=None, es_job_id=None):
 # %% [markdown]
 # ## Main Pipeline Orchestration
 # 
-# Coordinates the complete hybrid RAG pipeline execution across five sequential steps.
+# Coordinates the complete hybrid RAG pipeline execution across six sequential steps.
 # 
-# ### Step 0: Elasticsearch Preprocessing
+# ### Step 0: Data Source Preparation
+# - Downloads source data from GitHub repository zip files
+# - Sets up Elasticsearch index with sales records
+# - Creates and populates S3 bucket with PDF documents
+# - Exits if data preparation fails
+# 
+# ### Step 1: Elasticsearch Preprocessing
 # - Validates source data availability (sales-records-consolidated index)
 # - Prepares destination index (customer-support)
 # - Exits if source data is unavailable
 # 
-# ### Step 1: Source Connector Creation
+# ### Step 2: Source Connector Creation
 # - Creates S3 source connector for PDF documents
 # - Creates Elasticsearch source connector for sales records
 # - Exits if either connector creation fails
 # 
-# ### Step 2: Destination Connector Creation
+# ### Step 3: Destination Connector Creation
 # - Creates unified Elasticsearch destination connector
 # - Configures customer-support index as target
 # - Exits if destination connector creation fails
 # 
-# ### Step 3: Workflow Creation
+# ### Step 4: Workflow Creation
 # - Creates parallel workflows with identical processing nodes
 # - Configures both workflows to write to same destination
 # - Exits if Elasticsearch workflow creation fails (S3 workflow is optional)
 # 
-# ### Step 4: Workflow Execution
+# ### Step 5: Workflow Execution
 # - Starts both workflows for parallel processing
 # - Returns job IDs for monitoring
 # - Exits if job initiation fails
 # 
-# ### Step 5: Summary Display
+# ### Step 6: Summary Display
 # - Shows all created resource IDs and job information
 # - Provides status overview for monitoring and debugging
 # 
@@ -1083,16 +1407,24 @@ def main():
     """Main pipeline execution"""
     print("🚀 Starting Hybrid RAG Pipeline")
     
-    # Step 0: Elasticsearch preprocessing
-    print("\n🔧 Step 0: Elasticsearch preprocessing")
+    # Step 0: Data Source Preparation
+    print("\n📦 Step 0: Data source preparation")
+    print("-" * 50)
+    
+    if not prepare_data_sources():
+        print("❌ Failed to prepare data sources")
+        return
+    
+    # Step 1: Elasticsearch preprocessing
+    print("\n🔧 Step 1: Elasticsearch preprocessing")
     print("-" * 50)
     
     if not run_elasticsearch_preprocessing():
         print("❌ Failed to complete Elasticsearch preprocessing")
         return
     
-    # Step 1: Create Source Connectors
-    print("\n🔗 Step 1: Creating source connectors")
+    # Step 2: Create Source Connectors
+    print("\n🔗 Step 2: Creating source connectors")
     print("-" * 50)
     
     s3_source_id = create_s3_source_connector()
@@ -1105,8 +1437,8 @@ def main():
         print("❌ Failed to create Elasticsearch source connector")
         return
     
-    # Step 2: Create Destination Connector
-    print("\n🎯 Step 2: Creating Elasticsearch destination connector")
+    # Step 3: Create Destination Connector
+    print("\n🎯 Step 3: Creating Elasticsearch destination connector")
     print("-" * 50)
     
     destination_id = create_elasticsearch_destination_connector()
@@ -1114,8 +1446,8 @@ def main():
         print("❌ Failed to create destination connector")
         return
     
-    # Step 3: Create Workflows
-    print("\n⚙️ Step 3: Creating workflows")
+    # Step 4: Create Workflows
+    print("\n⚙️ Step 4: Creating workflows")
     print("-" * 50)
     
     s3_workflow_id, es_workflow_id = create_parallel_workflows(
@@ -1126,8 +1458,8 @@ def main():
         print("❌ Failed to create Elasticsearch workflow")
         return
     
-    # Step 4: Run Workflows
-    print("\n🚀 Step 4: Running workflows")
+    # Step 5: Run Workflows
+    print("\n🚀 Step 5: Running workflows")
     print("-" * 50)
     
     s3_job_id = None
@@ -1145,7 +1477,7 @@ def main():
             print("❌ Failed to start Elasticsearch workflow")
             return
 
-    # Step 5: Pipeline Summary
+    # Step 6: Pipeline Summary
     print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id)
     return s3_job_id, es_job_id
 
