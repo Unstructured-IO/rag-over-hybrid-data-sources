@@ -70,44 +70,25 @@
 # **Need help?** Contact Unstructured Support at support@unstructured.io
 
 # %% [markdown]
-# ## Configuration: Connecting Your Data Sources
+# ## Configuration: Environment Setup
 # 
-# This pipeline requires access to three services. Choose your preferred configuration method:
+# ### For Google Colab Users
 # 
-# ### Method 1: Environment File (Recommended)
+# **Step 1: Set Your API Keys**
 # 
-# Create a `.env` file in your project root:
+# In the code cell below, replace the placeholder values with your actual API keys:
+# - Find each line that says `"your-[service]-api-key"`
+# - Replace with your actual credentials (keep the quotes)
+# - Run the cell to validate your configuration
 # 
-# ```bash
-# # Unstructured API
-# UNSTRUCTURED_API_KEY=your-actual-api-key
+# **Step 2: Run the Configuration Cell**
 # 
-# # AWS S3 (for document storage)
-# AWS_ACCESS_KEY_ID=your-aws-access-key
-# AWS_SECRET_ACCESS_KEY=your-aws-secret-key
-# AWS_REGION=us-east-1
-# S3_SOURCE_BUCKET=your-documents-bucket
+# The cell will install required packages and validate your credentials.
+
+# %% [markdown]
+# ### Environment Variable Configuration
 # 
-# # Elasticsearch (for structured data and results)
-# ELASTICSEARCH_HOST=https://your-cluster.es.io:9200
-# ELASTICSEARCH_API_KEY=your-elasticsearch-api-key
-# ELASTICSEARCH_INDEX=sales-records-consolidated
-# ```
-# 
-# ### Method 2: Direct Configuration
-# 
-# Alternatively, you can paste your credentials directly in the code by:
-# 1. Finding the `# Method 2: Direct assignment` sections below
-# 2. Uncommenting those lines and replacing placeholder values
-# 3. Commenting out the corresponding `os.getenv()` lines
-# 
-# ### What Each Service Does
-# 
-# - **Unstructured API**: Processes and transforms your documents
-# - **AWS S3**: Stores unstructured documents (PDFs, manuals)
-# - **Elasticsearch**: Holds structured data and stores final results
-# 
-# The script validates all credentials at startup and provides clear error messages for any missing values.
+# **Instructions**: Replace the placeholder values below with your actual credentials:
 
 # %%
 import sys, subprocess
@@ -115,11 +96,14 @@ import sys, subprocess
 def ensure_notebook_deps() -> None:
     packages = [
         "jupytext",
-        "python-dotenv",
+        "python-dotenv", 
         "unstructured-client",
         "elasticsearch",
         "boto3",
         "PyYAML",
+        "langchain",
+        "langchain-elasticsearch",
+        "langchain-openai"
     ]
     try:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", *packages])
@@ -159,68 +143,49 @@ from unstructured_client.models.shared import (
     CreateWorkflow
 )
 
-# Load environment variables
+# =============================================================================
+# GOOGLE COLAB ENVIRONMENT SETUP
+# =============================================================================
+# Paste your actual credentials here (replace the placeholder values):
+
+UNSTRUCTURED_API_KEY = "your-unstructured-api-key"
+AWS_ACCESS_KEY_ID = "your-aws-access-key"
+AWS_SECRET_ACCESS_KEY = "your-aws-secret-key"
+AWS_REGION = "us-east-1"
+S3_SOURCE_BUCKET = "your-s3-bucket-name"
+ELASTICSEARCH_HOST = "https://your-cluster.es.io:9200"
+ELASTICSEARCH_API_KEY = "your-elasticsearch-api-key"
+ELASTICSEARCH_INDEX = "sales-records-consolidated"
+
+# Optional: OpenAI API key for RAG functionality
+OPENAI_API_KEY = "your-openai-api-key"
+
+# =============================================================================
+# ENVIRONMENT FILE FALLBACK
+# =============================================================================
+# Load from .env file (will override the values above if file exists)
 load_dotenv()
 
-# Configuration
+# Override with environment variables if available
+UNSTRUCTURED_API_KEY = os.getenv("UNSTRUCTURED_API_KEY", UNSTRUCTURED_API_KEY)
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", AWS_ACCESS_KEY_ID)  
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", AWS_SECRET_ACCESS_KEY)
+AWS_REGION = os.getenv("AWS_REGION", AWS_REGION)
+S3_SOURCE_BUCKET = os.getenv("S3_SOURCE_BUCKET", S3_SOURCE_BUCKET)
+ELASTICSEARCH_HOST = os.getenv("ELASTICSEARCH_HOST", ELASTICSEARCH_HOST)
+ELASTICSEARCH_API_KEY = os.getenv("ELASTICSEARCH_API_KEY", ELASTICSEARCH_API_KEY)
+ELASTICSEARCH_INDEX = os.getenv("ELASTICSEARCH_INDEX", ELASTICSEARCH_INDEX)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", OPENAI_API_KEY)
+
+# Configuration constants
 SKIPPED = "SKIPPED"
-
-# =============================================================================
-# CONFIGURATION OPTIONS - Choose ONE of the following methods:
-# =============================================================================
-
-# METHOD 1: Use .env file (RECOMMENDED)
-# Create a .env file in the project root with your actual values
-# Then keep all the os.getenv() lines below as-is
-
-# METHOD 2: Paste your credentials directly below
-# Comment out the os.getenv() lines and uncomment the direct assignment lines
-# Replace "PASTE_YOUR_VALUE_HERE" with your actual credentials
-
-# =============================================================================
-# AWS CONFIGURATION
-# =============================================================================
-# Method 1: Environment variables (default)
-AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "your-access-key-id")
-AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "your-secret-access-key")
-AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-S3_SOURCE_BUCKET = os.getenv("S3_SOURCE_BUCKET")
-
-# Method 2: Direct assignment (uncomment and paste your values)
-# AWS_ACCESS_KEY_ID = "PASTE_YOUR_AWS_ACCESS_KEY_ID_HERE"
-# AWS_SECRET_ACCESS_KEY = "PASTE_YOUR_AWS_SECRET_ACCESS_KEY_HERE"
-# AWS_REGION = "us-east-1"
-# S3_SOURCE_BUCKET = "PASTE_YOUR_SOURCE_BUCKET_NAME_HERE"
-
-# =============================================================================
-# UNSTRUCTURED API CONFIGURATION
-# =============================================================================
-# Method 1: Environment variables (default)
-UNSTRUCTURED_API_KEY = os.getenv("UNSTRUCTURED_API_KEY", "your-unstructured-api-key")
 UNSTRUCTURED_API_URL = os.getenv("UNSTRUCTURED_API_URL", "https://platform.unstructuredapp.io/api/v1")
-
-# Method 2: Direct assignment (uncomment and paste your values)
-# UNSTRUCTURED_API_KEY = "PASTE_YOUR_UNSTRUCTURED_API_KEY_HERE"
-# UNSTRUCTURED_API_URL = "https://platform.unstructuredapp.io/api/v1"
-
-# =============================================================================
-# ELASTICSEARCH CONFIGURATION
-# =============================================================================
-# Method 1: Environment variables (default)
-ELASTICSEARCH_HOST = os.getenv("ELASTICSEARCH_HOST", "your-elasticsearch-host")
-ELASTICSEARCH_API_KEY = os.getenv("ELASTICSEARCH_API_KEY", "your-elasticsearch-api-key")
-ELASTICSEARCH_INDEX = os.getenv("ELASTICSEARCH_INDEX", "sales-records-consolidated")
-
-# Method 2: Direct assignment (uncomment and paste your values)
-# ELASTICSEARCH_HOST = "PASTE_YOUR_ELASTICSEARCH_HOST_HERE"  # e.g., "https://my-cluster.es.us-east-1.aws.com:9200"
-# ELASTICSEARCH_API_KEY = "PASTE_YOUR_ELASTICSEARCH_API_KEY_HERE"
-# ELASTICSEARCH_INDEX = "sales-records-consolidated"
 
 # Validation
 REQUIRED_VARS = {
+    "UNSTRUCTURED_API_KEY": UNSTRUCTURED_API_KEY,
     "AWS_ACCESS_KEY_ID": AWS_ACCESS_KEY_ID,
     "AWS_SECRET_ACCESS_KEY": AWS_SECRET_ACCESS_KEY,
-    "UNSTRUCTURED_API_KEY": UNSTRUCTURED_API_KEY,
     "ELASTICSEARCH_HOST": ELASTICSEARCH_HOST,
     "ELASTICSEARCH_API_KEY": ELASTICSEARCH_API_KEY,
     "S3_SOURCE_BUCKET": S3_SOURCE_BUCKET,
@@ -229,10 +194,29 @@ REQUIRED_VARS = {
 missing_vars = [key for key, value in REQUIRED_VARS.items() if not value or value.startswith("your-")]
 if missing_vars:
     print(f"❌ Missing required configuration values: {', '.join(missing_vars)}")
-    print("Please update your .env file with the required values.")
+    print("Please update the configuration section above with your actual API keys.")
     raise ValueError(f"Missing required configuration values: {missing_vars}")
 
 print("✅ Configuration loaded successfully") 
+
+# %% [markdown]
+# ### Alternative: Local Development with .env File
+# 
+# If running locally (not in Colab), create a `.env` file in your project root. The environment file will override the values above:
+# 
+# ```bash
+# # .env file contents
+# UNSTRUCTURED_API_KEY=your-actual-api-key
+# UNSTRUCTURED_API_URL=https://platform.unstructuredapp.io/api/v1
+# AWS_ACCESS_KEY_ID=your-aws-access-key
+# AWS_SECRET_ACCESS_KEY=your-aws-secret-key
+# AWS_REGION=us-east-1
+# S3_SOURCE_BUCKET=your-documents-bucket
+# ELASTICSEARCH_HOST=https://your-cluster.es.io:9200
+# ELASTICSEARCH_API_KEY=your-elasticsearch-api-key
+# ELASTICSEARCH_INDEX=sales-records-consolidated
+# OPENAI_API_KEY=your-openai-api-key
+# ```
 
 # %% [markdown]
 # ## AWS S3: Document Storage Setup
@@ -241,11 +225,9 @@ print("✅ Configuration loaded successfully")
 # 
 # ### What You Need
 # 
-# **An S3 bucket** containing the documents you want to process. This could be:
-# - Product manuals and documentation
-# - Technical specifications
-# - Support guides and troubleshooting docs
-# - Any PDF documents relevant to customer support
+# **An existing S3 bucket** containing the documents you want to process. 
+# 
+# > **Note**: This tutorial assumes you have an existing S3 bucket with documents. For detailed S3 setup instructions, see the [Unstructured S3 source connector documentation](https://docs.unstructured.io/api-reference/api-services/source-connectors/s3).
 # 
 # ### AWS Requirements
 # 
@@ -258,19 +240,17 @@ print("✅ Configuration loaded successfully")
 # 
 # Elasticsearch serves dual purposes in our pipeline:
 # 1. **Source**: Stores your structured business data (sales records, customer info)
-# 2. **Destination**: Receives the unified, processed results
+# 2. **Destination**: Receives the unified, processed results that will be used for RAG queries
 # 
 # ### What You Need
 # 
-# **Elasticsearch cluster** with API key authentication. This could be:
-# - Elastic Cloud (managed service)
-# - Self-hosted Elasticsearch
-# - AWS OpenSearch Service
+# **Elasticsearch cluster** with API key authentication from Elastic Cloud (managed service)
 # 
 # ### Required Indices
 # 
 # **Source Index**: `sales-records-consolidated`
 # - Contains your business data (sales records, customer interactions, etc.)
+# - Created automatically by the pipeline
 # - Must exist with data before running the pipeline
 # - Will be read and processed by the Unstructured API
 # 
@@ -278,6 +258,16 @@ print("✅ Configuration loaded successfully")
 # - Created automatically by the pipeline
 # - Receives processed results from both S3 and Elasticsearch sources
 # - Your unified knowledge base for RAG queries
+# 
+# ### Why Consolidated Data Format Matters
+# 
+# Traditional databases store information in separate fields (customer_name, product_id, purchase_date). For RAG applications, we consolidate this into a long-form text field that provides full context in each search result.
+# 
+# Example transformation:
+# ```
+# Before: {customer: "John Doe", product: "BH-001", date: "2024-01-15"}
+# After: "Customer John Doe \n product BH-001 \n January 15, 2024..."
+# ```
 # 
 # ### API Key Permissions
 # 
@@ -316,33 +306,18 @@ print("✅ Configuration loaded successfully")
 # }
 # ```
 # 
-# **Don't have Elasticsearch data yet?** The pipeline includes automatic data setup that creates sample sales records for demonstration.
+# **Don't have Elasticsearch data yet?** The pipeline includes automatic data setup that creates sample sales records for demonstration. This is done by downloading .ZIP files from github and unzipping them.
 
 # %% [markdown]
 # ## Data Preparation: Setting Up Demo Sources
 # 
-# For this demonstration, we'll automatically set up realistic sample data that mimics a real enterprise scenario.
+# For this demonstration, we've created realistic sample data that represents a typical enterprise scenario.
 # 
-# ### What Gets Created
+# **Elasticsearch Sales Data**: 100 synthetic sales records with customer information, with consolidated fields to optimize for vector search
 # 
-# **Elasticsearch Sales Data**
-# - 100 synthetic sales records with customer information
-# - Consolidated format optimized for vector search
-# - Includes customer names, products, purchase details, and interactions
+# **S3 Product Documentation**: 9 product manuals downloaded from manufacturer websites and stored in your S3 bucket
 # 
-# **S3 Product Documentation**
-# - 9 real product manuals downloaded from manufacturer websites
-# - Bose headphone documentation including setup guides and troubleshooting
-# - Stored in your specified S3 bucket for processing
-# 
-# ### Why This Matters
-# 
-# This setup mimics real enterprise scenarios where:
-# - **Structured data** (sales records) lives in databases
-# - **Unstructured documents** (manuals) are stored in cloud storage
-# - Both need to be searchable together for effective customer support
-# 
-# The automatic setup ensures you can run this pipeline immediately without manual data preparation.
+# This mimics real enterprise scenarios where structured data (sales records) and unstructured documents (manuals) need to be searchable together for effective customer support.
 
 # %%
 # Data preparation functions - requires global variables to be imported
@@ -606,73 +581,33 @@ def prepare_data_sources():
     return True 
 
 # %% [markdown]
-# ## Connecting to Document Storage
+# ## Connecting to S3 Document Storage
 # 
-# The S3 source connector reads unstructured documents from cloud storage.
+# The S3 source connector reads unstructured documents from your cloud storage.
 # 
-# ### What It Processes
-# 
-# In our demo: Product manuals and support documentation downloaded from manufacturer websites. These represent the type of unstructured content that customer support teams need instant access to.
-# 
-# ### How It Works
-# 
-# The connector:
-# 1. **Connects** to your S3 bucket using AWS credentials
-# 2. **Scans recursively** through all subdirectories
-# 3. **Identifies** supported document types (PDFs, images, text files)
-# 4. **Queues** documents for processing by the Unstructured API
-# 
-# ### Configuration
-# 
-# - **Flexible URL handling**: Accepts various S3 URL formats
-# - **Recursive processing**: Handles nested folder structures
-# - **Secure authentication**: Uses your AWS access keys
+# - **Bucket Access**: Connects to your specified S3 bucket using AWS credentials
+# - **File Discovery**: Recursively scans all subdirectories for supported document types
+# - **Processing Queue**: Identifies and queues PDFs, images, and text files for the Unstructured pipeline
 
 # %% [markdown]
-# ## Connecting to Business Data
+# ## Connecting to Elasticsearch Business Data
 # 
-# The Elasticsearch source connector reads structured business data from your existing systems.
+# The Elasticsearch source connector reads structured data from your existing business systems.
 # 
-# ### What It Processes
-# 
-# In our demo: Consolidated sales records containing customer information, purchase history, and interaction data. This represents the structured data that complements your documents.
-# 
-# ### Why Consolidated Data Works Better
-# 
-# Traditional databases store information in separate fields (customer_name, product_id, purchase_date). For RAG applications, we consolidate this into narrative text that provides full context in each search result.
-# 
-# Example transformation:
-# ```
-# Before: {customer: "John Doe", product: "BH-001", date: "2024-01-15"}
-# After: "Customer John Doe purchased product BH-001 on January 15, 2024..."
-# ```
-# 
-# ### Configuration
-# 
-# - **Direct index access**: Reads from your specified Elasticsearch index
-# - **Authenticated connection**: Uses your Elasticsearch API key
-# - **Flexible querying**: Processes all documents in the source index
+# - **Index Access**: Connects directly to the `sales-records-consolidated` index
+# - **Authentication**: Uses your Elasticsearch API key for secure access
+# - **Data Processing**: Reads all documents from the source index for processing
 
 # %% [markdown]
 # ## Creating the Unified Knowledge Base
 # 
 # Both processing workflows write their results to a single destination: the `customer-support` index.
 # 
-# ### Unified Destination Strategy
+# - **Index Creation**: Automatically creates the destination index with optimized mappings
+# - **Unified Storage**: Receives processed results from both S3 and Elasticsearch workflows
+# - **Vector Search Ready**: Configured with proper field types for semantic search and metadata filtering
 # 
-# This approach creates a single searchable index containing:
-# - **Document content** from S3 (manuals, guides, specifications)
-# - **Business data** from Elasticsearch (customer records, sales data)
-# - **Consistent format** with identical processing applied to both sources
-# 
-# ### Why This Matters
-# 
-# Customer support agents can now search once and get results from all data sources:
-# - "How do I reset the BH-900 headphones?" → Gets manual instructions
-# - "What did John Smith purchase last month?" → Gets sales record data
-# - "BH-900 troubleshooting for premium customers" → Gets both manual sections AND customer data
-# 
-# The unified index makes complex, cross-source queries possible.
+# This destination connector ensures all your processed data lands in a single, searchable index regardless of the original source format.
 
 # %%
 def create_s3_source_connector():
@@ -779,30 +714,29 @@ def create_elasticsearch_destination_connector():
 # ### The Four Processing Stages
 # 
 # **1. VLM Partitioning** (GPT-4o)
-# - Converts documents into structured JSON elements
-# - Handles complex layouts, tables, and visual content
-# - Preserves semantic relationships between content sections
+# - Intelligently extracts content from complex document layouts
+# - Handles tables, images, and multi-column formats
+# - Preserves semantic relationships between sections
 # 
-# **2. Smart Chunking** (Title-based)
-# - Creates 1,500-character chunks with 2,048 maximum
-# - Maintains semantic coherence by respecting document structure
-# - Ensures each chunk contains complete, contextual information
+# **2. Chunker Node** (Title-based)
+# - Creates 1,500-character chunks (max 2,048) that respect document structure
+# - Maintains context by chunking at natural boundaries (headings, paragraphs)
+# - Ensures each chunk contains complete, meaningful information
 # 
-# **3. Vector Embedding** (OpenAI text-embedding-3-small)
+# **3. Embedder Node** (OpenAI text-embedding-3-small)
 # - Converts text chunks into 1,536-dimensional vectors
-# - Enables semantic similarity search across all content
-# - Powers the "understanding" behind RAG queries
+# - Enables semantic search that understands meaning, not just keywords
 # 
 # **4. NER Enrichment** (Named Entity Recognition)
-# - Extracts people, places, organizations, products
-# - Adds structured metadata to improve search precision
-# - Enables entity-based filtering and routing
+# - Extracts entities: people, organizations, products, locations
+# - Adds structured metadata for precise search and filtering
+# - Enables entity-based query routing and recommendations
 # 
 # ### Why Identical Processing Matters
 # 
 # Using the same pipeline for both data sources ensures:
 # - **Consistent search behavior** across document types
-# - **Comparable embedding spaces** for cross-source similarity
+# - **Comparable embedding spaces** for cross-source similarity  
 # - **Unified metadata structure** for filtering and analysis
 
 # %%
@@ -819,9 +753,9 @@ def create_workflow_nodes():
         }
     )
     
-    # Smart Chunker Node
+    # Chunker Node (fixed naming per feedback)
     chunk_node = WorkflowNode(
-        name="Smart_Chunker",
+        name="Chunker_Node",
         subtype="chunk_by_title",
         type="chunk",
         settings={
@@ -831,9 +765,9 @@ def create_workflow_nodes():
         }
     )
     
-    # Vector Embedder Node
+    # Embedder Node (fixed naming per feedback)
     embedder_node = WorkflowNode(
-        name="Vector_Embedder",
+        name="Embedder_Node",
         subtype="openai",
         type="embed",
         settings={
@@ -841,11 +775,11 @@ def create_workflow_nodes():
         }
     )
     
-    # NER Enrichment Node
+    # NER Enrichment Node (fixed configuration per memory)
     ner_enrichment_node = WorkflowNode(
         name="NER_Enrichment",
-        subtype="openai_ner",
         type="prompter",
+        subtype="openai_ner",
         settings={
             # Use Unstructured's default NER prompt; override later if needed
         }
@@ -915,6 +849,30 @@ def create_parallel_workflows(s3_source_id, elasticsearch_source_id, destination
         return None, None
 
 # %% [markdown]
+# ## Creating Parallel Processing Workflows
+# 
+# We create two independent workflows that process different data sources simultaneously.
+# 
+# ### Workflow Architecture
+# 
+# **S3 Document Workflow**
+# - Source: PDF documents from cloud storage
+# - Processing: VLM → Chunker → Embedder → NER
+# - Destination: customer-support index
+# 
+# **Elasticsearch Data Workflow**
+# - Source: Structured sales records
+# - Processing: Same four-stage pipeline
+# - Destination: Same customer-support index
+# 
+# ### Why NER (Named Entity Recognition) Matters
+# 
+# NER extraction identifies people, places, organizations, and products in your content. This enables:
+# - **Precise search**: Find all mentions of "John Smith" or "BH-900 headphones"
+# - **Entity-based routing**: Route queries to relevant content based on detected entities
+# - **Structured metadata**: Add searchable tags to unstructured content
+
+# %% [markdown]
 # ## Starting the Processing Jobs
 # 
 # Workflow execution is asynchronous - we start the jobs and monitor their progress.
@@ -925,14 +883,6 @@ def create_parallel_workflows(s3_source_id, elasticsearch_source_id, destination
 # 2. **Receive** job IDs for tracking
 # 3. **Monitor** progress through job status polling
 # 4. **Handle** completion or failure states
-# 
-# ### Job Management
-# 
-# Each workflow creates an independent job that:
-# - Runs on Unstructured's cloud infrastructure
-# - Processes data according to the defined pipeline
-# - Writes results directly to the destination index
-# - Reports status and progress through the API
 # 
 # This approach scales automatically and handles large datasets without local resource constraints.
 
@@ -1003,9 +953,6 @@ def poll_job_status(job_id, job_name, wait_time=30):
 # - Checks status every 30 seconds
 # - Provides progress updates with clear indicators
 # - Blocks execution until jobs complete
-# - Handles errors gracefully with informative messages
-# 
-# This ensures both workflows finish before we verify results.
 
 # %% [markdown]
 # ## Preparing the Elasticsearch Environment
@@ -1015,9 +962,6 @@ def poll_job_status(job_id, job_name, wait_time=30):
 # ### Source Validation
 # 
 # **Critical Check**: Ensures the `sales-records-consolidated` index exists and contains data
-# - Prevents wasted processing on empty sources
-# - Provides clear error messages if data is missing
-# - Validates data count to confirm meaningful content
 # 
 # ### Destination Preparation
 # 
@@ -1037,8 +981,6 @@ def poll_job_status(job_id, job_name, wait_time=30):
 #   "metadata": "object"      // Source info and entities
 # }
 # ```
-# 
-# This preprocessing ensures reliable, predictable results.
 
 # %%
 def run_elasticsearch_preprocessing():
@@ -1130,16 +1072,10 @@ def run_elasticsearch_preprocessing():
 # - Job IDs for monitoring and debugging
 # - Current processing status
 # - Resource endpoints for verification
-# 
-# ### Status Indicators
-# 
-# - ✅ **Created successfully**: Resource is ready and operational
-# - **SKIPPED**: Component was bypassed (usually S3 if setup failed)
-# - **Job IDs**: For tracking processing progress
-# 
-# This summary provides everything needed to monitor and troubleshoot the pipeline.
 
 # %%
+import os
+
 def print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id):
     """Print comprehensive pipeline summary."""
     print("\n" + "=" * 80)
@@ -1154,6 +1090,112 @@ def print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id)
     print(f"")
     print(f"🚀 S3 PDFs Job ID: {s3_job_id if s3_job_id else SKIPPED}")
     print(f"🚀 Elasticsearch Sales Job ID: {es_job_id}")
+
+def query_unified_knowledge_base():
+    """
+    Demonstrate RAG querying against the unified knowledge base using LangChain.
+    Shows how to get answers from both S3 documents and Elasticsearch data.
+    """
+    print("\n🤖 RAG Query Demonstration")
+    print("=" * 40)
+    
+    # Check if OpenAI API key is available
+    if not OPENAI_API_KEY or OPENAI_API_KEY.startswith("your-"):
+        print("⚠️ OpenAI API key not configured. Skipping RAG demonstration.")
+        print("💡 To enable RAG queries, add your OpenAI API key to the configuration section.")
+        return
+    
+    try:
+        from langchain_elasticsearch import ElasticsearchStore
+        from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+        from langchain.chains import RetrievalQA
+        from langchain.schema import Document
+        
+        # Set OpenAI API key
+        os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+        
+        # Initialize embeddings (same model used in processing)
+        embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+        
+        # Connect to Elasticsearch vector store
+        vector_store = ElasticsearchStore(
+            es_url=ELASTICSEARCH_HOST,
+            index_name="customer-support",
+            embedding=embeddings,
+            es_api_key=ELASTICSEARCH_API_KEY
+        )
+        
+        # Initialize LLM
+        llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
+        
+        # Create RAG chain
+        qa_chain = RetrievalQA.from_chain_type(
+            llm=llm,
+            chain_type="stuff",
+            retriever=vector_store.as_retriever(search_kwargs={"k": 5}),
+            return_source_documents=True
+        )
+        
+        # Test queries that should pull from both data sources
+        test_queries = [
+            "How do I troubleshoot Bose headphone connectivity issues?",
+            "What products did customers purchase in the electronics category?", 
+            "Can you help me with headphone setup and show customer purchase patterns?",
+            "What support issues are common with audio products?"
+        ]
+        
+        print("🔍 Testing hybrid RAG queries across unified data sources:\n")
+        
+        for i, query in enumerate(test_queries, 1):
+            print(f"**Query {i}:** {query}")
+            print("-" * 60)
+            
+            try:
+                result = qa_chain({"query": query})
+                answer = result["result"]
+                sources = result["source_documents"]
+                
+                print(f"**Answer:** {answer}\n")
+                
+                # Analyze source distribution
+                s3_sources = 0
+                es_sources = 0
+                
+                print("**Sources:**")
+                for j, doc in enumerate(sources[:3]):  # Show top 3 sources
+                    metadata = doc.metadata
+                    text_preview = doc.page_content[:150] + "..." if len(doc.page_content) > 150 else doc.page_content
+                    
+                    # Determine source type
+                    if "data_source-record_locator-index_name" in metadata:
+                        source_type = "📊 Elasticsearch (Sales Data)"
+                        es_sources += 1
+                    elif "data_source-url" in metadata and "s3://" in metadata["data_source-url"]:
+                        source_type = "📄 S3 (Product Documentation)"
+                        s3_sources += 1
+                    else:
+                        source_type = "❓ Unknown Source"
+                    
+                    print(f"  {j+1}. {source_type}")
+                    print(f"     Preview: {text_preview}")
+                
+                print(f"\n📈 Source Distribution: {s3_sources} S3 docs, {es_sources} Elasticsearch records")
+                print("=" * 80 + "\n")
+                
+            except Exception as e:
+                print(f"❌ Error processing query: {e}\n")
+        
+        print("✅ RAG Demonstration Complete!")
+        print("💡 Your unified knowledge base successfully combines:")
+        print("   • Product documentation from S3")  
+        print("   • Customer/sales data from Elasticsearch")
+        print("   • Both sources are searchable in a single query")
+        
+    except ImportError as e:
+        print(f"❌ Missing RAG dependencies: {e}")
+        print("💡 Install with: pip install langchain langchain-elasticsearch langchain-openai")
+    except Exception as e:
+        print(f"❌ Error setting up RAG queries: {e}")
 
 def verify_customer_support_results(s3_job_id=None, es_job_id=None):
     """
@@ -1290,6 +1332,9 @@ def verify_customer_support_results(s3_job_id=None, es_job_id=None):
         print("✅ Documents from both source connectors are present (if both completed)")
         print("✅ Text search is functional across processed content")
         print("✅ Ready for hybrid RAG queries!")
+        
+        # Now demonstrate actual RAG functionality
+        query_unified_knowledge_base()
 
     except Exception as e:
         print(f"❌ Error verifying results: {e}")
@@ -1310,7 +1355,7 @@ def verify_customer_support_results(s3_job_id=None, es_job_id=None):
 # **Step 1: Environment Validation**
 # - Confirms source data availability
 # - Prepares clean destination index
-# - Validates all required credentials
+# - Validates presence of all required credentials
 # 
 # **Step 2-3: Connector Setup**
 # - Creates source connectors for both data types
@@ -1331,10 +1376,6 @@ def verify_customer_support_results(s3_job_id=None, es_job_id=None):
 # - Reports all created resources
 # - Provides tracking information
 # - Displays pipeline status
-# 
-# ### Error Handling
-# 
-# The pipeline uses "fail-fast" approach - any critical step failure stops execution with clear error messages, preventing wasted processing time.
 
 # %%
 def main():
@@ -1418,37 +1459,10 @@ def main():
 # %% [markdown]
 # ## Running the Complete Pipeline
 # 
-# This final section executes the pipeline and verifies results.
-# 
-# ### Execution Sequence
-# 
 # 1. **Pipeline Setup**: Calls `main()` to create all resources and start processing
 # 2. **Job Monitoring**: Waits for both workflows to complete successfully
 # 3. **Result Verification**: Analyzes the unified knowledge base
-# 
-# ### Monitoring Strategy
-# 
-# - Polls both job statuses until completion
-# - Provides real-time progress updates
-# - Handles both success and failure scenarios
-# - Blocks until all processing finishes
-# 
-# ### Final Verification
-# 
-# Once jobs complete, the verification step:
-# - Confirms documents from both sources are present
-# - Tests search functionality across the unified index
-# - Validates the hybrid RAG system is ready for queries
-# 
-# ### Next Steps
-# 
-# With your unified knowledge base created, you can:
-# - Build RAG applications that query across all data sources
-# - Implement customer support chatbots with comprehensive knowledge
-# - Create search interfaces that surface relevant information from any source
-# - Extend the pipeline to include additional data sources
-# 
-# **Your hybrid RAG system is now operational!**
+# 4. **RAG Demonstration**: Shows actual queries across both data sources
 
 # %%
 # Pipeline execution runner - requires main() and verification functions to be imported
@@ -1465,3 +1479,39 @@ s3_job_info = poll_job_status(s3_job_id, "S3 Ingest")
 print("\n🔍 Verifying processed results")
 print("-" * 50)
 verify_customer_support_results() 
+
+# %% [markdown]
+# ## What We Have Learned
+# 
+# **Enterprise Data Integration**
+# - How to process multiple data formats (PDFs, structured records) in parallel
+# - Why consistent processing pipelines matter for unified search
+# - The value of creating a single searchable knowledge base
+# 
+# **Unstructured API Capabilities**
+# - VLM-powered document partitioning for complex layouts
+# - Intelligent chunking that preserves document structure
+# - Named entity recognition for enhanced search precision
+# - Unified processing across diverse data sources
+# 
+# **RAG System Architecture**
+# - Parallel workflow design for scalability and reliability
+# - Vector embeddings for semantic similarity search
+# - Source attribution in mixed-data query results
+# 
+# ### Next Steps
+# 
+# **Immediate Applications**
+# - Deploy customer support chatbots with comprehensive knowledge access
+# - Build internal search tools that surface information from any source
+# - Create automated content recommendation systems
+# 
+# **System Extensions**
+# - Add more data sources (email, CRM, knowledge bases) using additional workflows
+# - Implement real-time data synchronization for live updates
+# - Add access controls and user-specific content filtering
+# 
+# **Production Deployment**
+# - Scale up processing workflows for production data volumes
+# - Implement monitoring and alerting for job status
+# - Add backup and disaster recovery for your knowledge base

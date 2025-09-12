@@ -1,3 +1,5 @@
+import os
+
 def print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id):
     """Print comprehensive pipeline summary."""
     print("\n" + "=" * 80)
@@ -12,6 +14,112 @@ def print_pipeline_summary(s3_workflow_id, es_workflow_id, s3_job_id, es_job_id)
     print(f"")
     print(f"🚀 S3 PDFs Job ID: {s3_job_id if s3_job_id else SKIPPED}")
     print(f"🚀 Elasticsearch Sales Job ID: {es_job_id}")
+
+def query_unified_knowledge_base():
+    """
+    Demonstrate RAG querying against the unified knowledge base using LangChain.
+    Shows how to get answers from both S3 documents and Elasticsearch data.
+    """
+    print("\n🤖 RAG Query Demonstration")
+    print("=" * 40)
+    
+    # Check if OpenAI API key is available
+    if not OPENAI_API_KEY or OPENAI_API_KEY.startswith("your-"):
+        print("⚠️ OpenAI API key not configured. Skipping RAG demonstration.")
+        print("💡 To enable RAG queries, add your OpenAI API key to the configuration section.")
+        return
+    
+    try:
+        from langchain_elasticsearch import ElasticsearchStore
+        from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+        from langchain.chains import RetrievalQA
+        from langchain.schema import Document
+        
+        # Set OpenAI API key
+        os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+        
+        # Initialize embeddings (same model used in processing)
+        embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+        
+        # Connect to Elasticsearch vector store
+        vector_store = ElasticsearchStore(
+            es_url=ELASTICSEARCH_HOST,
+            index_name="customer-support",
+            embedding=embeddings,
+            es_api_key=ELASTICSEARCH_API_KEY
+        )
+        
+        # Initialize LLM
+        llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
+        
+        # Create RAG chain
+        qa_chain = RetrievalQA.from_chain_type(
+            llm=llm,
+            chain_type="stuff",
+            retriever=vector_store.as_retriever(search_kwargs={"k": 5}),
+            return_source_documents=True
+        )
+        
+        # Test queries that should pull from both data sources
+        test_queries = [
+            "How do I troubleshoot Bose headphone connectivity issues?",
+            "What products did customers purchase in the electronics category?", 
+            "Can you help me with headphone setup and show customer purchase patterns?",
+            "What support issues are common with audio products?"
+        ]
+        
+        print("🔍 Testing hybrid RAG queries across unified data sources:\n")
+        
+        for i, query in enumerate(test_queries, 1):
+            print(f"**Query {i}:** {query}")
+            print("-" * 60)
+            
+            try:
+                result = qa_chain({"query": query})
+                answer = result["result"]
+                sources = result["source_documents"]
+                
+                print(f"**Answer:** {answer}\n")
+                
+                # Analyze source distribution
+                s3_sources = 0
+                es_sources = 0
+                
+                print("**Sources:**")
+                for j, doc in enumerate(sources[:3]):  # Show top 3 sources
+                    metadata = doc.metadata
+                    text_preview = doc.page_content[:150] + "..." if len(doc.page_content) > 150 else doc.page_content
+                    
+                    # Determine source type
+                    if "data_source-record_locator-index_name" in metadata:
+                        source_type = "📊 Elasticsearch (Sales Data)"
+                        es_sources += 1
+                    elif "data_source-url" in metadata and "s3://" in metadata["data_source-url"]:
+                        source_type = "📄 S3 (Product Documentation)"
+                        s3_sources += 1
+                    else:
+                        source_type = "❓ Unknown Source"
+                    
+                    print(f"  {j+1}. {source_type}")
+                    print(f"     Preview: {text_preview}")
+                
+                print(f"\n📈 Source Distribution: {s3_sources} S3 docs, {es_sources} Elasticsearch records")
+                print("=" * 80 + "\n")
+                
+            except Exception as e:
+                print(f"❌ Error processing query: {e}\n")
+        
+        print("✅ RAG Demonstration Complete!")
+        print("💡 Your unified knowledge base successfully combines:")
+        print("   • Product documentation from S3")  
+        print("   • Customer/sales data from Elasticsearch")
+        print("   • Both sources are searchable in a single query")
+        
+    except ImportError as e:
+        print(f"❌ Missing RAG dependencies: {e}")
+        print("💡 Install with: pip install langchain langchain-elasticsearch langchain-openai")
+    except Exception as e:
+        print(f"❌ Error setting up RAG queries: {e}")
 
 def verify_customer_support_results(s3_job_id=None, es_job_id=None):
     """
@@ -148,6 +256,9 @@ def verify_customer_support_results(s3_job_id=None, es_job_id=None):
         print("✅ Documents from both source connectors are present (if both completed)")
         print("✅ Text search is functional across processed content")
         print("✅ Ready for hybrid RAG queries!")
+        
+        # Now demonstrate actual RAG functionality
+        query_unified_knowledge_base()
 
     except Exception as e:
         print(f"❌ Error verifying results: {e}")

@@ -11,9 +11,9 @@ def create_workflow_nodes():
         }
     )
     
-    # Smart Chunker Node
+    # Chunker Node (fixed naming per feedback)
     chunk_node = WorkflowNode(
-        name="Smart_Chunker",
+        name="Chunker_Node",
         subtype="chunk_by_title",
         type="chunk",
         settings={
@@ -23,9 +23,9 @@ def create_workflow_nodes():
         }
     )
     
-    # Vector Embedder Node
+    # Embedder Node (fixed naming per feedback)
     embedder_node = WorkflowNode(
-        name="Vector_Embedder",
+        name="Embedder_Node",
         subtype="openai",
         type="embed",
         settings={
@@ -33,11 +33,11 @@ def create_workflow_nodes():
         }
     )
     
-    # NER Enrichment Node
+    # NER Enrichment Node (fixed configuration per memory)
     ner_enrichment_node = WorkflowNode(
         name="NER_Enrichment",
-        subtype="openai_ner",
         type="prompter",
+        subtype="openai_ner",
         settings={
             # Use Unstructured's default NER prompt; override later if needed
         }
