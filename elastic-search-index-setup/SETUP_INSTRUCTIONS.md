@@ -94,10 +94,20 @@ python simple_check.py
 **Expected Output**: Should show connection success or indicate if index doesn't exist yet.
 
 ### 3.2 Create Index and Upload Synthetic Data
-Run the main setup script:
+
+**Choose your data structure approach:**
+
+#### Option A: Consolidated Structure (Recommended for RAG)
 ```bash
-python elasticsearch_setup.py
+python create_consolidated_index.py
 ```
+**Best for**: RAG use cases where context preservation is critical
+
+#### Option B: Non-Consolidated Structure (Good for Analytics)
+```bash
+python create_nonconsolidated_index.py
+```
+**Best for**: Traditional database queries and business intelligence
 
 **What this script does**:
 - ✅ Tests connection to Elasticsearch
