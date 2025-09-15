@@ -1,4 +1,13 @@
 # RAG Demonstration Configuration and Queries
+import os
+import json
+
+# LangChain imports for RAG functionality
+from langchain_elasticsearch import ElasticsearchStore
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
 
 RAG_OPENAI_API_KEY = "your-openai-api-key-here"
 
@@ -21,12 +30,6 @@ def setup_rag_system():
         return None
     
     try:
-        from langchain_elasticsearch import ElasticsearchStore
-        from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-        from langchain_core.prompts import ChatPromptTemplate
-        from langchain_core.output_parsers import StrOutputParser
-        from langchain_core.runnables import RunnablePassthrough
-        
         # Set OpenAI API key
         os.environ["OPENAI_API_KEY"] = RAG_OPENAI_API_KEY
         
