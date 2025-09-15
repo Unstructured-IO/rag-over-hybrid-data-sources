@@ -9,36 +9,34 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 
-RAG_OPENAI_API_KEY = "your-openai-api-key-here"
-
-RAG_OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", RAG_OPENAI_API_KEY)
-
 print("🤖 RAG Query Demonstration Setup")
 print("=" * 40)
 
-if not RAG_OPENAI_API_KEY or RAG_OPENAI_API_KEY.startswith("your-"):
+if not OPENAI_API_KEY or OPENAI_API_KEY.startswith("your-"):
     print("⚠️ OpenAI API key not configured.")
-    print("💡 Please update the RAG_OPENAI_API_KEY variable above with your actual OpenAI API key.")
+    print("💡 Please set OPENAI_API_KEY in your .env file with your actual OpenAI API key.")
     print("📝 You can get one at: https://platform.openai.com/api-keys")
 else:
     print("✅ OpenAI API key configured for RAG demonstrations")
 
 def setup_rag_system():
-    """Initialize the RAG system with LangChain and Elasticsearch."""
-    if not RAG_OPENAI_API_KEY or RAG_OPENAI_API_KEY.startswith("your-"):
-        print("❌ Cannot setup RAG system without OpenAI API key")
+    """Set up the RAG system with Elasticsearch and OpenAI."""
+    
+    if not OPENAI_API_KEY or OPENAI_API_KEY.startswith("your-"):
+        print("❌ OpenAI API key is required for RAG functionality")
+        print("Please set OPENAI_API_KEY in your .env file")
         return None
     
+    # Set OpenAI API key for LangChain
+    os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+    
     try:
-        # Set OpenAI API key
-        os.environ["OPENAI_API_KEY"] = RAG_OPENAI_API_KEY
-        
         print("🔧 Setting up RAG components...")
         
         # Initialize embeddings (same model used in processing)
         embeddings = OpenAIEmbeddings(
             model="text-embedding-3-small",
-            openai_api_key=RAG_OPENAI_API_KEY
+            openai_api_key=OPENAI_API_KEY
         )
         
         # Connect to Elasticsearch vector store - using your working pattern
@@ -58,7 +56,7 @@ def setup_rag_system():
         llm = ChatOpenAI(
             model="gpt-3.5-turbo",
             temperature=0,
-            openai_api_key=RAG_OPENAI_API_KEY
+            openai_api_key=OPENAI_API_KEY
         )
         
         # Enhanced prompt template that leverages NER metadata

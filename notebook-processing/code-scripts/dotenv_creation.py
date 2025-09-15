@@ -1,22 +1,40 @@
 def create_dotenv_file():
     """Create a .env file with placeholder values for the user to fill in."""
-    env_content = """# Unstructured API Configuration
-UNSTRUCTURED_API_KEY=your-unstructured-api-key
-UNSTRUCTURED_API_URL=https://platform.unstructuredapp.io/api/v1
+    env_content = """# Hybrid RAG Pipeline Environment Configuration
+# Fill in your actual values below
+# Configuration - Set these explicitly
 
-# AWS S3 Configuration
-AWS_ACCESS_KEY_ID=your-aws-access-key
-AWS_SECRET_ACCESS_KEY=your-aws-secret-key
-AWS_REGION=us-east-1
-S3_SOURCE_BUCKET=your-s3-bucket-name
+# ===================================================================
+# AWS CONFIGURATION
+# ===================================================================
+AWS_ACCESS_KEY_ID="your-aws-access-key-id"
+AWS_SECRET_ACCESS_KEY="your-aws-secret-access-key"
+AWS_REGION="us-east-1"
 
-# Elasticsearch Configuration
-ELASTICSEARCH_HOST=https://your-cluster.es.io:9200
-ELASTICSEARCH_API_KEY=your-elasticsearch-api-key
-ELASTICSEARCH_INDEX=sales-records-consolidated
+# ===================================================================
+# UNSTRUCTURED API CONFIGURATION  
+# ===================================================================
+UNSTRUCTURED_API_KEY="your-unstructured-api-key"
+UNSTRUCTURED_API_URL="https://platform.unstructuredapp.io/api/v1"
 
-# OpenAI Configuration (for RAG demo)
-OPENAI_API_KEY=your-openai-api-key
+# ===================================================================
+# ELASTICSEARCH CONFIGURATION
+# ===================================================================
+ELASTICSEARCH_HOST="https://your-cluster.es.io:443"
+ELASTICSEARCH_API_KEY="your-elasticsearch-api-key"
+
+# ===================================================================
+# PIPELINE DATA SOURCES
+# ===================================================================
+S3_SOURCE_BUCKET="your-s3-source-bucket"
+S3_DESTINATION_BUCKET="your-s3-destination-bucket"
+S3_OUTPUT_PREFIX=""
+ELASTICSEARCH_INDEX="sales-records-consolidated"
+
+# ===================================================================
+# OPENAI API CONFIGURATION 
+# ===================================================================
+OPENAI_API_KEY="your-openai-api-key"
 """
     
     with open('.env', 'w') as f:

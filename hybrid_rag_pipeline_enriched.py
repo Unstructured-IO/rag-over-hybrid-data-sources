@@ -69,23 +69,41 @@
 # %%
 def create_dotenv_file():
     """Create a .env file with placeholder values for the user to fill in."""
-    env_content = """# Unstructured API Configuration
-UNSTRUCTURED_API_KEY=your-unstructured-api-key
-UNSTRUCTURED_API_URL=https://platform.unstructuredapp.io/api/v1
+    env_content = """# Hybrid RAG Pipeline Environment Configuration
+# Fill in your actual values below
+# Configuration - Set these explicitly
 
-# AWS S3 Configuration
-AWS_ACCESS_KEY_ID=your-aws-access-key
-AWS_SECRET_ACCESS_KEY=your-aws-secret-key
-AWS_REGION=us-east-1
-S3_SOURCE_BUCKET=your-s3-bucket-name
+# ===================================================================
+# AWS CONFIGURATION
+# ===================================================================
+AWS_ACCESS_KEY_ID="your-aws-access-key-id"
+AWS_SECRET_ACCESS_KEY="your-aws-secret-access-key"
+AWS_REGION="us-east-1"
 
-# Elasticsearch Configuration
-ELASTICSEARCH_HOST=https://your-cluster.es.io:9200
-ELASTICSEARCH_API_KEY=your-elasticsearch-api-key
-ELASTICSEARCH_INDEX=sales-records-consolidated
+# ===================================================================
+# UNSTRUCTURED API CONFIGURATION  
+# ===================================================================
+UNSTRUCTURED_API_KEY="your-unstructured-api-key"
+UNSTRUCTURED_API_URL="https://platform.unstructuredapp.io/api/v1"
 
-# OpenAI Configuration (for RAG demo)
-OPENAI_API_KEY=your-openai-api-key
+# ===================================================================
+# ELASTICSEARCH CONFIGURATION
+# ===================================================================
+ELASTICSEARCH_HOST="https://your-cluster.es.io:443"
+ELASTICSEARCH_API_KEY="your-elasticsearch-api-key"
+
+# ===================================================================
+# PIPELINE DATA SOURCES
+# ===================================================================
+S3_SOURCE_BUCKET="your-s3-source-bucket"
+S3_DESTINATION_BUCKET="your-s3-destination-bucket"
+S3_OUTPUT_PREFIX=""
+ELASTICSEARCH_INDEX="sales-records-consolidated"
+
+# ===================================================================
+# OPENAI API CONFIGURATION 
+# ===================================================================
+OPENAI_API_KEY="your-openai-api-key"
 """
     
     with open('.env', 'w') as f:
@@ -172,6 +190,8 @@ AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 S3_SOURCE_BUCKET = os.getenv("S3_SOURCE_BUCKET")
+S3_DESTINATION_BUCKET = os.getenv("S3_DESTINATION_BUCKET")
+S3_OUTPUT_PREFIX = os.getenv("S3_OUTPUT_PREFIX", "")
 ELASTICSEARCH_HOST = os.getenv("ELASTICSEARCH_HOST")
 ELASTICSEARCH_API_KEY = os.getenv("ELASTICSEARCH_API_KEY")
 ELASTICSEARCH_INDEX = os.getenv("ELASTICSEARCH_INDEX", "sales-records-consolidated")
@@ -1210,36 +1230,34 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 
-RAG_OPENAI_API_KEY = "your-openai-api-key-here"
-
-RAG_OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", RAG_OPENAI_API_KEY)
-
 print("🤖 RAG Query Demonstration Setup")
 print("=" * 40)
 
-if not RAG_OPENAI_API_KEY or RAG_OPENAI_API_KEY.startswith("your-"):
+if not OPENAI_API_KEY or OPENAI_API_KEY.startswith("your-"):
     print("⚠️ OpenAI API key not configured.")
-    print("💡 Please update the RAG_OPENAI_API_KEY variable above with your actual OpenAI API key.")
+    print("💡 Please set OPENAI_API_KEY in your .env file with your actual OpenAI API key.")
     print("📝 You can get one at: https://platform.openai.com/api-keys")
 else:
     print("✅ OpenAI API key configured for RAG demonstrations")
 
 def setup_rag_system():
-    """Initialize the RAG system with LangChain and Elasticsearch."""
-    if not RAG_OPENAI_API_KEY or RAG_OPENAI_API_KEY.startswith("your-"):
-        print("❌ Cannot setup RAG system without OpenAI API key")
+    """Set up the RAG system with Elasticsearch and OpenAI."""
+    
+    if not OPENAI_API_KEY or OPENAI_API_KEY.startswith("your-"):
+        print("❌ OpenAI API key is required for RAG functionality")
+        print("Please set OPENAI_API_KEY in your .env file")
         return None
     
+    # Set OpenAI API key for LangChain
+    os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+    
     try:
-        # Set OpenAI API key
-        os.environ["OPENAI_API_KEY"] = RAG_OPENAI_API_KEY
-        
         print("🔧 Setting up RAG components...")
         
         # Initialize embeddings (same model used in processing)
         embeddings = OpenAIEmbeddings(
             model="text-embedding-3-small",
-            openai_api_key=RAG_OPENAI_API_KEY
+            openai_api_key=OPENAI_API_KEY
         )
         
         # Connect to Elasticsearch vector store - using your working pattern
@@ -1259,7 +1277,7 @@ def setup_rag_system():
         llm = ChatOpenAI(
             model="gpt-3.5-turbo",
             temperature=0,
-            openai_api_key=RAG_OPENAI_API_KEY
+            openai_api_key=OPENAI_API_KEY
         )
         
         # Enhanced prompt template that leverages NER metadata
