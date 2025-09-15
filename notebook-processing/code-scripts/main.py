@@ -2,7 +2,6 @@ def main():
     """Main pipeline execution"""
     print("🚀 Starting Hybrid RAG Pipeline")
     
-    # Step 0: Data Source Preparation
     print("\n📦 Step 0: Data source preparation")
     print("-" * 50)
     
@@ -10,7 +9,6 @@ def main():
         print("❌ Failed to prepare data sources")
         return
     
-    # Step 1: Elasticsearch preprocessing
     print("\n🔧 Step 1: Elasticsearch preprocessing")
     print("-" * 50)
     
@@ -18,7 +16,6 @@ def main():
         print("❌ Failed to complete Elasticsearch preprocessing")
         return
     
-    # Step 2: Create Source Connectors
     print("\n🔗 Step 2: Creating source connectors")
     print("-" * 50)
     

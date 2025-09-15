@@ -5,7 +5,6 @@ def create_s3_source_connector():
             raise ValueError("S3_SOURCE_BUCKET is required (bucket name, s3:// URL, or https:// URL)")
         value = S3_SOURCE_BUCKET.strip()
 
-        # Build s3:// URL from various accepted formats
         if value.startswith("s3://"):
             s3_style = value if value.endswith("/") else value + "/"
         elif value.startswith("http://") or value.startswith("https://"):
@@ -15,7 +14,6 @@ def create_s3_source_connector():
             bucket = host.split(".s3.")[0]
             s3_style = f"s3://{bucket}{path if path.endswith('/') else path + '/'}"
         else:
-            # treat as raw bucket or bucket/prefix
             s3_style = f"s3://{value if value.endswith('/') else value + '/'}"
         
         with UnstructuredClient(api_key_auth=UNSTRUCTURED_API_KEY) as client:

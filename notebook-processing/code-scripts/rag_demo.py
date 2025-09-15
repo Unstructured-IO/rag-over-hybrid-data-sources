@@ -1,15 +1,12 @@
 # RAG Demonstration Configuration and Queries
 
-# OpenAI API Key for RAG functionality
 RAG_OPENAI_API_KEY = "your-openai-api-key-here"
 
-# Override with environment variable if available
 RAG_OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", RAG_OPENAI_API_KEY)
 
 print("🤖 RAG Query Demonstration Setup")
 print("=" * 40)
 
-# Check if OpenAI API key is configured
 if not RAG_OPENAI_API_KEY or RAG_OPENAI_API_KEY.startswith("your-"):
     print("⚠️ OpenAI API key not configured.")
     print("💡 Please update the RAG_OPENAI_API_KEY variable above with your actual OpenAI API key.")

@@ -1,5 +1,4 @@
-# Data preparation functions - requires global variables to be imported
-# Note: All imports and global variables are defined in dependencies.py
+# Data preparation functions
 
 def download_file(url: str, local_path: str) -> bool:
     """Download a file from URL to local path."""
@@ -8,7 +7,6 @@ def download_file(url: str, local_path: str) -> bool:
         response = requests.get(url, stream=True)
         response.raise_for_status()
         
-        # Create directory if it doesn't exist
         Path(local_path).parent.mkdir(parents=True, exist_ok=True)
         
         with open(local_path, 'wb') as f:
@@ -27,7 +25,6 @@ def setup_elasticsearch_data():
     print("🔧 Setting up Elasticsearch sales data...")
     
     try:
-        # Initialize Elasticsearch client
         es = Elasticsearch(
             ELASTICSEARCH_HOST,
             api_key=ELASTICSEARCH_API_KEY,
@@ -38,14 +35,12 @@ def setup_elasticsearch_data():
         
         index_name = "sales-records-consolidated"
         
-        # Download sales data zip file
         sales_data_url = "https://github.com/Unstructured-IO/rag-over-hybrid-data-sources/raw/feature/hybrid-rag-pipeline/source_data/sales_records_consolidated.zip"
         
         with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp_file:
             if not download_file(sales_data_url, tmp_file.name):
                 return False
             
-            # Extract and load data
             with zipfile.ZipFile(tmp_file.name, 'r') as zipf:
                 # Load mapping
                 with zipf.open('mapping.json') as f:

@@ -2,31 +2,29 @@
 
 INTRO: |
   """
-  # Hybrid RAG Pipeline: Unifying Enterprise Data Sources
+  # Building a Hybrid RAG System: From Fragmented Data to Unified Intelligence
+
+  Picture this: You're a customer support agent, and a customer calls about a product issue. To help them effectively, you need to pull information from multiple sources - product manuals stored as PDFs in cloud storage, their purchase history in your sales database, and previous support interactions scattered across different systems. Each piece of information lives in a different format, in a different system, with different access methods.
+
+  This is the reality for most enterprises today, and it's exactly the challenge we're going to solve together.
 
   ## The Enterprise Data Challenge
 
-  Imagine you're a customer support agent trying to help a customer with a complex product issue. You need information from:
-  - **Product manuals** stored as PDFs in cloud storage
-  - **Customer purchase history** in your sales database
-  - **Previous support interactions** scattered across different systems
+  Enterprise data rarely lives in one place or format. Critical information is fragmented across unstructured documents like PDFs and manuals in cloud storage, structured records like sales data in databases, and different formats requiring different processing approaches. Traditional RAG systems work well with homogeneous data but struggle when you need to query across diverse data sources simultaneously.
 
-  Each piece lives in a different format, in a different system, with different access methods. This is the reality for most enterprises today.
+  ## Why This Matters
 
-  ## Why Data Unification Matters
+  When data is scattered, customer support becomes inefficient, decision-making lacks context, and valuable insights remain hidden. A customer asking about a product issue shouldn't require you to manually search through multiple systems to piece together a complete picture.
 
-  **The Problem**: Enterprise data rarely lives in one place or format. Critical information is fragmented across:
-  - Unstructured documents (PDFs, manuals, reports) in cloud storage
-  - Structured records (sales data, customer info) in databases
-  - Different formats requiring different processing approaches
+  ## The Solution: Unstructured's Complete Gen AI Data Layer
 
-  **The Challenge**: Traditional RAG systems work well with homogeneous data but struggle when you need to query across diverse data sources simultaneously.
+  Unstructured isn't just another data processing tool—it's a complete Gen AI data layer solution that transforms how organizations handle unstructured data at scale. Unlike building custom solutions or using fragmented tools, Unstructured provides a unified platform that connects to 30+ data sources, processes 65+ file types with intelligent partitioning and chunking, automatically enriches content with metadata and context, and delivers to 30+ destinations—all while maintaining enterprise-grade security and compliance.
 
-  **The Solution**: This notebook demonstrates how to build a hybrid RAG system that processes multiple data types in parallel and creates a unified, searchable knowledge base.
+  The platform eliminates the complexity of managing multiple tools, custom integrations, and manual data preparation, allowing teams to focus on building AI applications rather than wrestling with data infrastructure. With flexible deployment options from SaaS to bare metal, Unstructured adapts to any infrastructure while providing the observability, automation, and reliability that enterprise AI projects demand.
 
-  ## Architecture Overview
+  ## What We'll Build Together
 
-  Our solution processes two different data sources simultaneously:
+  In this tutorial, we'll create a hybrid RAG system that processes two different data sources simultaneously: product documentation from S3 and sales records from Elasticsearch. Both will flow through the same intelligent processing pipeline and land in a unified, searchable knowledge base.
 
   ```
   ┌─────────────────┐                           ┌─────────────────────────┐
@@ -45,133 +43,81 @@ INTRO: |
                                                 └─────────────────────────┘
   ```
 
-  ## How Unstructured Solves This
-
-  The Unstructured API provides a unified processing pipeline that:
-  1. **Handles diverse formats** - PDFs, databases, structured data
-  2. **Applies consistent processing** - Same chunking, embedding, and enrichment
-  3. **Creates unified output** - All data lands in the same searchable format
-  4. **Scales automatically** - Cloud-based processing handles large datasets
-
-  This notebook walks through building such a system step by step.
+  By the end of this tutorial, you'll have a working system that can answer complex questions by pulling information from both your product documentation and customer data simultaneously.
   """
 
 API_KEY_SETUP: |
   """
-  ## Getting Started: Unstructured API Access
+  ## Getting Started: Your Unstructured API Key
 
-  To follow along with this tutorial, you'll need an Unstructured API key.
+  To follow along with this tutorial, you'll need an Unstructured API key. This gives you access to the complete Gen AI data layer that will process your documents and create your unified knowledge base.
 
   ### Sign Up and Get Your API Key
 
-  1. **Sign up** for a free account at https://platform.unstructured.io
-  2. **Navigate to API Keys** in the sidebar after signing in
-  3. **Generate API Key** and copy it to your clipboard
-  4. **Save the key** - you'll need it for the configuration step below
-
-  For Team or Enterprise accounts, make sure you've selected the correct organizational workspace before creating your API key.
+  Visit https://platform.unstructured.io to sign up for a free account, navigate to API Keys in the sidebar, generate your API key, and save it for the configuration step below. For Team or Enterprise accounts, make sure you've selected the correct organizational workspace before creating your API key.
 
   **Need help?** Contact Unstructured Support at support@unstructured.io
   """
 
 CONFIG: |
   """
-  ## Configuration: Environment Setup
+  ## Configuration: Setting Up Your Environment
 
-  ### For Google Colab Users
+  Now we'll configure your environment with the necessary API keys and credentials. This step ensures your system can connect to all the data sources and services we'll be using.
 
-  **Step 1: Set Your API Keys**
-  
-  In the code cell below, replace the placeholder values with your actual API keys:
-  - Find each line that says `"your-[service]-api-key"`
-  - Replace with your actual credentials (keep the quotes)
-  - Run the cell to validate your configuration
-
-  **Step 2: Run the Configuration Cell**
-  
-  The cell will install required packages and validate your credentials.
   """
 
-COLAB_ENV_SETUP: |
+COLAB_DOTENV_CREATION: |
   """
-  ### Environment Variable Configuration
-  
-  **Instructions**: Replace the placeholder values below with your actual credentials:
+  ### Creating a .env File in Google Colab
+
+  For better security and organization, we'll create a `.env` file directly in your Colab environment. Run the code cell below to create the file with placeholder values, then edit it with your actual credentials.
+
+  After running the code cell, you'll need to replace each placeholder value (like `your-unstructured-api-key`) with your actual API keys and credentials.
   """
 
-DOTENV_FALLBACK: |
+DEPENDENCIES_EXPLANATION: |
   """
-  ### Alternative: Local Development with .env File
-  
-  If running locally (not in Colab), create a `.env` file in your project root. The environment file will override the values above:
+  ### Installing Required Dependencies
 
-  ```bash
-  # .env file contents
-  UNSTRUCTURED_API_KEY=your-actual-api-key
-  UNSTRUCTURED_API_URL=https://platform.unstructuredapp.io/api/v1
-  AWS_ACCESS_KEY_ID=your-aws-access-key
-  AWS_SECRET_ACCESS_KEY=your-aws-secret-key
-  AWS_REGION=us-east-1
-  S3_SOURCE_BUCKET=your-documents-bucket
-  ELASTICSEARCH_HOST=https://your-cluster.es.io:9200
-  ELASTICSEARCH_API_KEY=your-elasticsearch-api-key
-  ELASTICSEARCH_INDEX=sales-records-consolidated
-  OPENAI_API_KEY=your-openai-api-key
-  ```
+  The following code installs the Python packages needed for this tutorial: the Unstructured client, Elasticsearch connector, AWS SDK, and other dependencies.
   """
 
 AWS_S3_SETUP: |
   """
-  ## AWS S3: Document Storage Setup
+  ## AWS S3: Your Document Storage
 
-  Your unstructured documents (PDFs, manuals, reports) need to be accessible via S3.
+  Now that we have our environment configured, let's set up the data sources for our hybrid RAG system. First up: your unstructured documents. These PDFs, manuals, and reports need to be accessible via S3, where your product documentation and other unstructured content lives, waiting to be processed into searchable knowledge.
 
   ### What You Need
 
-  **An existing S3 bucket** containing the documents you want to process. 
+  **An existing S3 bucket** containing the documents you want to process. For this tutorial, we'll use sample product manuals, but in production, this would be your actual business documents.
 
   > **Note**: This tutorial assumes you have an existing S3 bucket with documents. For detailed S3 setup instructions, see the [Unstructured S3 source connector documentation](https://docs.unstructured.io/api-reference/api-services/source-connectors/s3).
 
-  ### AWS Requirements
-
-  - **AWS Account** with S3 access
-  - **IAM User** with S3 read permissions for your bucket
-  - **Access Keys** (Access Key ID and Secret Access Key)
+  You'll need an AWS account with S3 access, an IAM user with S3 read permissions for your bucket, and access keys (Access Key ID and Secret Access Key).
   """
 
 ELASTICSEARCH_SETUP: |
   """
-  ## Elasticsearch: Structured Data and Results Storage
+  ## Elasticsearch: Your Business Data Hub
 
-  Elasticsearch serves dual purposes in our pipeline:
-  1. **Source**: Stores your structured business data (sales records, customer info)
-  2. **Destination**: Receives the unified, processed results that will be used for RAG queries
+  While S3 holds your unstructured documents, Elasticsearch serves a dual purpose in our pipeline. It's both a source of structured business data (your sales records, customer information) and the destination where our unified, processed results will be stored for RAG queries.
 
   ### What You Need
 
-  **Elasticsearch cluster** with API key authentication from Elastic Cloud (managed service)
+  **Elasticsearch cluster** with API key authentication from Elastic Cloud (managed service). This gives you the reliability and scalability needed for enterprise applications.
 
-  ### Required Indices
-
-  **Source Index**: `sales-records-consolidated`
-  - Contains your business data (sales records, customer interactions, etc.)
-  - Created automatically by the pipeline
-  - Must exist with data before running the pipeline
-  - Will be read and processed by the Unstructured API
-
-  **Destination Index**: `customer-support`
-  - Created automatically by the pipeline
-  - Receives processed results from both S3 and Elasticsearch sources
-  - Your unified knowledge base for RAG queries
+  The pipeline uses two indices: `sales-records-consolidated` as the source containing your business data, and `customer-support` as the destination for your unified knowledge base. Both are created automatically by the pipeline.
 
   ### Why Consolidated Data Format Matters
 
-  Traditional databases store information in separate fields (customer_name, product_id, purchase_date). For RAG applications, we consolidate this into a long-form text field that provides full context in each search result.
+  Traditional databases store information in separate fields (customer_name, product_id, purchase_date). For RAG applications, we consolidate this into a long-form text field that provides full context in each search result. This approach ensures that when someone searches for "John's headphone purchase," they get the complete story in one result.
 
   Example transformation:
   ```
   Before: {customer: "John Doe", product: "BH-001", date: "2024-01-15"}
-  After: "Customer John Doe \n product BH-001 \n January 15, 2024..."
+  After: "customer: John Doe\nproduct: BH-001\ndate: 2024-01-15"
   ```
 
   ### API Key Permissions
@@ -216,174 +162,75 @@ ELASTICSEARCH_SETUP: |
 
 DATA_PREPARATION: |
   """
-  ## Data Preparation: Setting Up Demo Sources
+  ## Data Preparation: Setting Up Your Demo Environment
 
-  For this demonstration, we've created realistic sample data that represents a typical enterprise scenario.
+  With our infrastructure configured, let's prepare the actual data that will flow through our hybrid RAG system. For this demonstration, we've created realistic sample data that represents a typical enterprise scenario, giving you a working example without requiring you to set up your own data sources first.
 
-  **Elasticsearch Sales Data**: 100 synthetic sales records with customer information, with consolidated fields to optimize for vector search
+  **Elasticsearch Sales Data**: 100 synthetic sales records with customer information, with consolidated fields optimized for vector search. This represents the kind of structured business data you'd find in any enterprise system.
 
-  **S3 Product Documentation**: 9 product manuals downloaded from manufacturer websites and stored in your S3 bucket
+  **S3 Product Documentation**: 9 product manuals downloaded from manufacturer websites and stored in your S3 bucket. These represent the unstructured documents that contain critical product information.
 
-  This mimics real enterprise scenarios where structured data (sales records) and unstructured documents (manuals) need to be searchable together for effective customer support.
+  This combination mimics real enterprise scenarios where structured data (sales records) and unstructured documents (manuals) need to be searchable together for effective customer support. The magic happens when we can answer questions like "What issues have customers reported with the BH-900 headphones?" by pulling from both the sales records and the product manual simultaneously.
   """
 
 S3_SOURCE_CONNECTOR: |
   """
-  ## Connecting to S3 Document Storage
+  ## S3 Source Connector
 
-  The S3 source connector reads unstructured documents from your cloud storage.
-
-  - **Bucket Access**: Connects to your specified S3 bucket using AWS credentials
-  - **File Discovery**: Recursively scans all subdirectories for supported document types
-  - **Processing Queue**: Identifies and queues PDFs, images, and text files for the Unstructured pipeline
-
+  Now we'll create the connections that link our data sources to Unstructured's processing pipeline. First, let's establish the connection to your S3 bucket containing PDF documents for processing.
   """
 
 ES_SOURCE_CONNECTOR: |
   """
-  ## Connecting to Elasticsearch Business Data
+  ## Elasticsearch Source Connector
 
-  The Elasticsearch source connector reads structured data from your existing business systems.
-
-  - **Index Access**: Connects directly to the `sales-records-consolidated` index
-  - **Authentication**: Uses your Elasticsearch API key for secure access
-  - **Data Processing**: Reads all documents from the source index for processing
-
+  Next, we'll connect to your Elasticsearch index containing structured sales data, completing our dual-source setup.
   """
 
 ES_DESTINATION_CONNECTOR: |
   """
-  ## Creating the Unified Knowledge Base
+  ## Elasticsearch Destination Connector
 
-  Both processing workflows write their results to a single destination: the `customer-support` index.
-
-  - **Index Creation**: Automatically creates the destination index with optimized mappings
-  - **Unified Storage**: Receives processed results from both S3 and Elasticsearch workflows
-  - **Vector Search Ready**: Configured with proper field types for semantic search and metadata filtering
-
-  This destination connector ensures all your processed data lands in a single, searchable index regardless of the original source format.
+  Finally, we'll create the destination where both data streams will converge: the unified `customer-support` index where all processed data will be stored.
   """
 
 CREATE_WORKFLOWS: |
   """
   ## Creating Parallel Processing Workflows
 
-  We create two independent workflows that process different data sources simultaneously.
-
-  ### Workflow Architecture
-
-  **S3 Document Workflow**
-  - Source: PDF documents from cloud storage
-  - Processing: VLM → Chunker → Embedder → NER
-  - Destination: customer-support index
-
-  **Elasticsearch Data Workflow**
-  - Source: Structured sales records
-  - Processing: Same four-stage pipeline
-  - Destination: Same customer-support index
-
-  ### Why NER (Named Entity Recognition) Matters
-
-  NER extraction identifies people, places, organizations, and products in your content. This enables:
-  - **Precise search**: Find all mentions of "John Smith" or "BH-900 headphones"
-  - **Entity-based routing**: Route queries to relevant content based on detected entities
-  - **Structured metadata**: Add searchable tags to unstructured content
+  Now we'll assemble everything into the two parallel workflows shown in our architecture diagram above, connecting each data source to the processing pipeline and unified destination.
   """
 
 WORKFLOW_NODES: |
   """
-  ## Processing Pipeline: Making Data Searchable
+  ## Processing Pipeline Configuration
 
-  Both workflows use identical processing steps to ensure consistent output format.
-
-  ### The Four Processing Stages
-
-  **1. VLM Partitioning** (GPT-4o)
-  - Intelligently extracts content from complex document layouts
-  - Handles tables, images, and multi-column formats
-  - Preserves semantic relationships between sections
-
-  **2. Chunker Node** (Title-based)
-  - Creates 1,500-character chunks (max 2,048) that respect document structure
-  - Maintains context by chunking at natural boundaries (headings, paragraphs)
-  - Ensures each chunk contains complete, meaningful information
-
-  **3. Embedder Node** (OpenAI text-embedding-3-small)
-  - Converts text chunks into 1,536-dimensional vectors
-  - Enables semantic search that understands meaning, not just keywords
-
-  **4. NER Enrichment** (Named Entity Recognition)
-  - Extracts entities: people, organizations, products, locations
-  - Adds structured metadata for precise search and filtering
-  - Enables entity-based query routing and recommendations
-
-  ### Why Identical Processing Matters
-
-  Using the same pipeline for both data sources ensures:
-  - **Consistent search behavior** across document types
-  - **Comparable embedding spaces** for cross-source similarity  
-  - **Unified metadata structure** for filtering and analysis
+  With our connectors in place, we can now configure the intelligent processing pipeline that will transform both data sources. This four-stage pipeline (VLM → Chunker → Embedder → NER) will be applied to both workflows, ensuring consistent processing regardless of data source.
   """
 
 RUN_WORKFLOW: |
   """
-  ## Starting the Processing Jobs
+  ## Starting Your Processing Jobs
 
-  Workflow execution is asynchronous - we start the jobs and monitor their progress.
-
-  ### Execution Process
-
-  1. **Submit** workflow run requests to the Unstructured API
-  2. **Receive** job IDs for tracking
-  3. **Monitor** progress through job status polling
-  4. **Handle** completion or failure states
-
-  This approach scales automatically and handles large datasets without local resource constraints.
+  With our workflows configured, it's time to put them into action. This step submits both workflows to the Unstructured API and returns job IDs for monitoring.
   """
 
 JOB_MONITORING: |
   """
-  ## Monitoring Processing Progress
+  ## Monitoring Your Processing Progress
 
-  The pipeline provides real-time job monitoring to track processing status.
-
-  ### Status Polling
-
-  Jobs progress through these states:
-  - **SCHEDULED**: Queued and waiting for processing resources
-  - **IN_PROGRESS**: Actively processing your data
-  - **COMPLETED**: Successfully finished
-  - **FAILED**: Encountered an error
-
-  ### Monitoring Strategy
-
-  The `poll_job_status` function:
-  - Checks status every 30 seconds
-  - Provides progress updates with clear indicators
-  - Blocks execution until jobs complete
-
+  Jobs progress through scheduled, in-progress, completed, or failed states. The `poll_job_status` function checks status every 30 seconds and blocks execution until jobs complete, so you can see exactly what's happening with your data processing.
   """
 
 ES_PREPROCESSING: |
   """
-  ## Preparing the Elasticsearch Environment
+  ## Preparing Your Elasticsearch Environment
 
-  Before processing begins, we validate data sources and prepare the destination.
-
-  ### Source Validation
-
-  **Critical Check**: Ensures the `sales-records-consolidated` index exists and contains data
-
-  ### Destination Preparation
-
-  **Clean Slate Approach**: Recreates the `customer-support` index fresh for each run
-  - Deletes any existing index to prevent data mixing
-  - Creates new index with optimized mapping for RAG applications
-  - Configures proper field types for text search and metadata
+  Before processing begins, we validate that the `sales-records-consolidated` index exists and contains data, then recreate the `customer-support` index fresh for each run. This preparation step ensures a clean environment and prevents any issues from previous runs.
 
   ### Index Mapping
 
-  The destination index uses this structure:
+  The destination index uses this structure optimized for RAG applications:
   ```json
   {
     "id": "keyword",           // Unique document identifier
@@ -398,160 +245,69 @@ SUMMARY: |
   """
   ## Pipeline Execution Summary
 
-  This section displays all the resources created during pipeline setup.
-
-  ### Resource Tracking
-
-  **Data Sources**
-  - S3 bucket path for document storage
-  - Elasticsearch source index for business data
-
-  **Processing Infrastructure**
-  - Source connector IDs for data ingestion
-  - Destination connector ID for result storage
-  - Workflow IDs for the processing pipelines
-
-  **Execution Status**
-  - Job IDs for monitoring and debugging
-  - Current processing status
-  - Resource endpoints for verification
-
+  The following summary displays all resources created during pipeline setup: data source paths, connector IDs, workflow IDs, job IDs, and processing status.
   """
 
 VERIFICATION: |
   """
   ## Verifying Your Hybrid RAG System
 
-  After processing completes, we'll verify that both data sources have been successfully integrated into a unified knowledge base.
-
-  ### Verification Steps
-
-  **1. Index Analysis**: Confirm documents from both S3 and Elasticsearch sources are present
-
-  **2. Search Testing**: Validate that text search works across all content types
-
-  **3. RAG Demonstration**: Show actual Q&A queries that pull from both data sources
-
+  After processing completes, we'll verify that both data sources have been successfully integrated into a unified knowledge base. The verification includes checking document counts from each source, testing search functionality, and confirming the data is ready for RAG queries.
   """
 
 MAIN: |
   """
-  ## Orchestrating the Complete Pipeline
+  ## Orchestrating Your Complete Pipeline
 
-  The main function coordinates all pipeline steps in logical sequence.
-
-  ### Six-Step Process
-
-  **Step 0: Data Preparation**
-  - Downloads and sets up demo data sources
-  - Creates Elasticsearch index with sales records
-  - Populates S3 bucket with product documentation
-
-  **Step 1: Environment Validation**
-  - Confirms source data availability
-  - Prepares clean destination index
-  - Validates presence of all required credentials
-
-  **Step 2-3: Connector Setup**
-  - Creates source connectors for both data types
-  - Establishes destination connector for unified results
-  - Configures authentication and access
-
-  **Step 4: Workflow Creation**
-  - Builds parallel processing workflows
-  - Configures identical processing pipelines
-  - Links sources to unified destination
-
-  **Step 5: Execution**
-  - Starts both workflows simultaneously
-  - Returns job IDs for monitoring
-  - Initiates cloud-based processing
-
-  **Step 6: Summary**
-  - Reports all created resources
-  - Provides tracking information
-  - Displays pipeline status
-
+  The main function coordinates all pipeline steps in logical sequence: data preparation, environment validation, connector setup, workflow creation, execution, and summary reporting.
   """
 
 EXECUTION_FLOW: |
   """
-  ## Running the Complete Pipeline
+  ## Running Your Complete Pipeline
 
-  1. **Pipeline Setup**: Calls `main()` to create all resources and start processing
-  2. **Job Monitoring**: Waits for both workflows to complete successfully
-  3. **Result Verification**: Analyzes the unified knowledge base
-  4. **RAG Demonstration**: Shows actual queries across both data sources
+  We'll execute the complete pipeline by calling the main function to create all resources and start processing, then monitor the jobs until they complete successfully.
   """
 
 RAG_DEMO_SETUP: |
   """
   ## RAG Query Demonstration
 
-  Now that your hybrid knowledge base is ready, let's demonstrate how to query it using RAG (Retrieval-Augmented Generation).
+  Now that your hybrid knowledge base is ready, we'll demonstrate how to query it using RAG (Retrieval-Augmented Generation). This is where you'll see how the system can answer complex questions by pulling relevant information from both your S3 documents and Elasticsearch records.
 
   ### OpenAI API Key Required
 
-  For the RAG demonstration, you'll need an OpenAI API key to power the language model that generates answers based on your retrieved documents.
+  For the RAG demonstration, you'll need an OpenAI API key to power the language model that generates answers based on your retrieved documents. Visit https://platform.openai.com/api-keys to sign in or create an account and generate a new API key.
 
-  **Get your OpenAI API key:**
-  1. Visit https://platform.openai.com/api-keys
-  2. Sign in or create an account
-  3. Generate a new API key
-  4. Paste it in the configuration cell below
-
-  ### What This Demonstrates
-
-  - **Cross-source querying**: Ask questions that require information from both S3 documents and Elasticsearch records
-  - **Source attribution**: See exactly which documents contributed to each answer
-  - **Semantic understanding**: Experience how vector search finds relevant content based on meaning, not just keywords
+  The demonstration will show cross-source querying, source attribution, and semantic understanding as your hybrid RAG system answers questions by combining information from multiple data sources.
   """
-
 
 RAG_DEMO_CONFIG: |
   """
   ### RAG Configuration
 
-  **Instructions**: Paste your OpenAI API key below to enable RAG demonstrations:
+  **Instructions**: Paste your OpenAI API key below to enable RAG demonstrations. This key will be used to power the language model that generates answers based on your retrieved documents.
   """
 
 CONCLUSION: |
   """
-  ## What We Have Learned
+  ## What You've Accomplished
 
-  **Enterprise Data Integration**
-  - How to process multiple data formats (PDFs, structured records) in parallel
-  - Why consistent processing pipelines matter for unified search
-  - The value of creating a single searchable knowledge base
+  **Enterprise Data Integration**: You've learned how to process multiple data formats (PDFs, structured records) in parallel, why consistent processing pipelines matter for unified search, and the value of creating a single searchable knowledge base that spans all your data sources.
 
-  **Unstructured API Capabilities**
-  - VLM-powered document partitioning for complex layouts
-  - Intelligent chunking that preserves document structure
-  - Named entity recognition for enhanced search precision
-  - Unified processing across diverse data sources
+  **Unstructured API Capabilities**: You've experienced VLM-powered document partitioning for complex layouts, intelligent chunking that preserves document structure, named entity recognition for enhanced search precision, and unified processing across diverse data sources.
 
-  **RAG System Architecture**
-  - Parallel workflow design for scalability and reliability
-  - Vector embeddings for semantic similarity search
-  - Source attribution in mixed-data query results
-  - NER-enhanced query understanding and response generation
+  **RAG System Architecture**: You've built parallel workflow design for scalability and reliability, vector embeddings for semantic similarity search, source attribution in mixed-data query results, and NER-enhanced query understanding and response generation.
 
-  ### Next Steps
+  ### Ready to Scale?
 
-  **Immediate Applications**
-  - Deploy customer support chatbots with comprehensive knowledge access
-  - Build internal search tools that surface information from any source
-  - Create automated content recommendation systems
+  Deploy customer support chatbots with comprehensive knowledge access, build internal search tools that surface information from any source, or create automated content recommendation systems. Add more data sources using additional workflows, implement real-time data synchronization, or scale up for production data volumes with monitoring and alerting.
 
-  **System Extensions**
-  - Add more data sources (email, CRM, knowledge bases) using additional workflows
-  - Implement real-time data synchronization for live updates
-  - Add access controls and user-specific content filtering
+  ### Try Unstructured Today
 
-  **Production Deployment**
-  - Scale up processing workflows for production data volumes
-  - Implement monitoring and alerting for job status
-  - Add backup and disaster recovery for your knowledge base
+  Ready to build your own hybrid RAG system? [Sign up for a free trial](https://unstructured.io/?modal=try-for-free) and start transforming your enterprise data into intelligent, searchable knowledge.
+
+  **Need help getting started?** Contact our team to schedule a demo and see how Unstructured can solve your specific data challenges.
   """
 
 PRODUCT_MANUAL_EXAMPLE_CONTEXT: |

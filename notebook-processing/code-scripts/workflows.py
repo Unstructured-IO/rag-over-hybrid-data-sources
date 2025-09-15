@@ -1,6 +1,5 @@
 def create_workflow_nodes():
     """Create shared processing nodes for workflows."""
-    # VLM Partitioner Node
     vlm_partition_node = WorkflowNode(
         name="VLM_Partitioner",
         subtype="vlm",
@@ -11,7 +10,6 @@ def create_workflow_nodes():
         }
     )
     
-    # Chunker Node (fixed naming per feedback)
     chunk_node = WorkflowNode(
         name="Chunker_Node",
         subtype="chunk_by_title",
@@ -23,7 +21,6 @@ def create_workflow_nodes():
         }
     )
     
-    # Embedder Node (fixed naming per feedback)
     embedder_node = WorkflowNode(
         name="Embedder_Node",
         subtype="openai",
@@ -33,14 +30,11 @@ def create_workflow_nodes():
         }
     )
     
-    # NER Enrichment Node (fixed configuration per memory)
     ner_enrichment_node = WorkflowNode(
         name="NER_Enrichment",
         type="prompter",
         subtype="openai_ner",
-        settings={
-            # Use Unstructured's default NER prompt; override later if needed
-        }
+        settings={}
     )
     
     return vlm_partition_node, chunk_node, embedder_node, ner_enrichment_node

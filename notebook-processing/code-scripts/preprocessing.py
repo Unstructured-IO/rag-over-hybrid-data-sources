@@ -3,7 +3,6 @@ def run_elasticsearch_preprocessing():
     print("🔧 Running Elasticsearch preprocessing...")
     
     try:
-        # Initialize Elasticsearch client
         es = Elasticsearch(
             ELASTICSEARCH_HOST,
             api_key=ELASTICSEARCH_API_KEY,
@@ -12,14 +11,12 @@ def run_elasticsearch_preprocessing():
             retry_on_timeout=True
         )
         
-        # Check sales-records-consolidated index
         sales_index = "sales-records-consolidated"
         print(f"�� Checking {sales_index} index...")
         
         if not es.indices.exists(index=sales_index):
             raise ValueError(f"❌ Index '{sales_index}' does not exist. There is no data to use.")
         
-        # Check if sales index has data
         count_response = es.count(index=sales_index)
         doc_count = count_response['count']
         
